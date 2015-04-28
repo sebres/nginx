@@ -22,6 +22,7 @@ typedef struct {
 
 
 static ngx_int_t ngx_http_core_find_location(ngx_http_request_t *r);
+static ngx_int_t ngx_http_core_find_named_location(ngx_http_request_t *r, ngx_str_t *name);
 static ngx_int_t ngx_http_core_find_static_location(ngx_http_request_t *r,
     ngx_http_location_tree_node_t *node);
 
@@ -1542,6 +1543,16 @@ ngx_http_core_find_location(ngx_http_request_t *r)
     noregex = 0;
 #endif
 
+    /* already internal - check is resp. can be named location - search it */
+
+    if (r->internal && r->uri.len >= 1 && r->uri.data[0] == '@') {
+
+        if (ngx_http_core_find_named_location(r, &r->uri) == NGX_OK) {
+
+            return NGX_OK;
+        }
+    }
+
     pclcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
     rc = ngx_http_core_find_static_location(r, pclcf->static_locations);
@@ -1596,6 +1607,51 @@ ngx_http_core_find_location(ngx_http_request_t *r)
 #endif
 
     return rc;
+}
+
+
+/*
+ * NGX_OK       - named location was found (set in r->loc_conf)
+ * NGX_DECLINED - not found
+ */
+
+static ngx_int_t
+ngx_http_core_find_named_location(ngx_http_request_t *r, ngx_str_t *name)
+{
+    ngx_http_core_srv_conf_t  *cscf;
+    ngx_http_core_loc_conf_t **clcfp;
+
+    cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
+
+    if (cscf->named_locations) {
+
+        for (clcfp = cscf->named_locations; *clcfp; clcfp++) {
+
+            ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                           "test named location: \"%V\"", &(*clcfp)->name);
+
+            if (name->len != (*clcfp)->name.len
+                || ngx_strncmp(name->data, (*clcfp)->name.data, name->len) != 0)
+            {
+                continue;
+            }
+
+            if (r->args.len) {
+                ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                               "using location: %V \"%V?%V\"",
+                               name, &r->uri, &r->args);
+            } else {
+                ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                               "using named location: %V", name);
+            }
+
+            r->loc_conf = (*clcfp)->loc_conf;
+
+            return NGX_OK;
+        }
+    }
+
+    return NGX_DECLINED;
 }
 
 
@@ -2644,8 +2700,6 @@ ngx_http_internal_redirect(ngx_http_request_t *r,
 ngx_int_t
 ngx_http_named_location(ngx_http_request_t *r, ngx_str_t *name)
 {
-    ngx_http_core_srv_conf_t    *cscf;
-    ngx_http_core_loc_conf_t   **clcfp;
     ngx_http_core_main_conf_t   *cmcf;
 
     r->main->count++;
@@ -2668,44 +2722,25 @@ ngx_http_named_location(ngx_http_request_t *r, ngx_str_t *name)
         return NGX_DONE;
     }
 
-    cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
+    if (ngx_http_core_find_named_location(r, name) == NGX_OK) {
 
-    if (cscf->named_locations) {
+        r->internal = 1;
+        r->content_handler = NULL;
+        r->uri_changed = 0;
 
-        for (clcfp = cscf->named_locations; *clcfp; clcfp++) {
+        /* clear the modules contexts */
+        ngx_memzero(r->ctx, sizeof(void *) * ngx_http_max_module);
 
-            ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                           "test location: \"%V\"", &(*clcfp)->name);
+        ngx_http_update_location_config(r);
 
-            if (name->len != (*clcfp)->name.len
-                || ngx_strncmp(name->data, (*clcfp)->name.data, name->len) != 0)
-            {
-                continue;
-            }
+        cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
 
-            ngx_log_debug3(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                           "using location: %V \"%V?%V\"",
-                           name, &r->uri, &r->args);
+        r->phase_handler = cmcf->phase_engine.location_rewrite_index;
 
-            r->internal = 1;
-            r->content_handler = NULL;
-            r->uri_changed = 0;
-            r->loc_conf = (*clcfp)->loc_conf;
+        r->write_event_handler = ngx_http_core_run_phases;
+        ngx_http_core_run_phases(r);
 
-            /* clear the modules contexts */
-            ngx_memzero(r->ctx, sizeof(void *) * ngx_http_max_module);
-
-            ngx_http_update_location_config(r);
-
-            cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
-
-            r->phase_handler = cmcf->phase_engine.location_rewrite_index;
-
-            r->write_event_handler = ngx_http_core_run_phases;
-            ngx_http_core_run_phases(r);
-
-            return NGX_DONE;
-        }
+        return NGX_DONE;
     }
 
     ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
