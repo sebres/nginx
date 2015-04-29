@@ -2293,6 +2293,57 @@ ngx_http_upstream_test_next(ngx_http_request_t *r, ngx_http_upstream_t *u)
 }
 
 
+ngx_int_t
+ngx_http_upstream_transmit_headers(ngx_http_request_t *r, 
+    ngx_list_part_t *part, ngx_table_elt_t *filter)
+{
+    ngx_table_elt_t   *h, *ho;
+    ngx_uint_t        i;
+    h = part->elts;
+
+    for (i = 0; /* void */; i++) {
+
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+            part = part->next;
+            h = part->elts;
+            i = 0;
+        }
+        if (h[i].hash == 0) {
+            continue;
+        }
+        /* filter same header: */
+        if (&h[i] == filter) {
+            continue;
+        }
+        /* filter by key name: */
+        if (h[i].key.len != filter->key.len || 
+            ngx_strncasecmp(h[i].key.data, filter->key.data,
+                filter->key.len) != 0)
+        {
+            continue;
+        }
+        /* filter same value: */
+        if (h[i].value.len == filter->value.len && 
+            ngx_strncasecmp(h[i].value.data, filter->value.data,
+                filter->value.len) == 0)
+        {
+            continue;
+        }
+        ho = ngx_list_push(&r->headers_out.headers);
+        if (ho == NULL) {
+            return NGX_ERROR;
+        }
+
+        *ho = h[i];
+    }
+
+    return NGX_OK;
+}
+
+
 static ngx_int_t
 ngx_http_upstream_intercept_errors(ngx_http_request_t *r,
     ngx_http_upstream_t *u)
@@ -2339,6 +2390,16 @@ ngx_http_upstream_intercept_errors(ngx_http_request_t *r,
                 *h = *u->headers_in.www_authenticate;
 
                 r->headers_out.www_authenticate = h;
+
+                /* transmit all authenticate headers (ex: multiple authenticate
+                 * challenges [rfc2616 sec14.47]): */
+                if (ngx_http_upstream_transmit_headers(r, 
+                        &u->headers_in.headers.part, h) != NGX_OK)
+                {
+                    ngx_http_upstream_finalize_request(r, u,
+                                               NGX_HTTP_INTERNAL_SERVER_ERROR);
+                    return NGX_OK;
+                }
             }
 
 #if (NGX_HTTP_CACHE)

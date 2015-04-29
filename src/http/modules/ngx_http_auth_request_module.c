@@ -156,6 +156,16 @@ ngx_http_auth_request_handler(ngx_http_request_t *r)
                 *ho = *h;
 
                 r->headers_out.www_authenticate = ho;
+
+                /* transmit all authenticate headers (ex: multiple authenticate
+                 * challenges [rfc2616 sec14.47]): */
+                if (ngx_http_upstream_transmit_headers(r, !sr->upstream ?
+                        &r->headers_in.headers.part : 
+                        &sr->upstream->headers_in.headers.part,
+                        ho) != NGX_OK)
+                {
+                    return NGX_ERROR;
+                }
             }
 
             return ctx->status;
