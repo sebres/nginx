@@ -369,6 +369,9 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
     ngx_log_t        *log;
     ngx_socket_t      s;
     ngx_listening_t  *ls;
+#if (NGX_WIN32)
+    ngx_shared_socket_info  shinfo = NULL;
+#endif
 
     reuseaddr = 1;
 #if (NGX_SUPPRESS_WARN)
@@ -420,6 +423,40 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                 continue;
             }
 
+#if (NGX_WIN32)
+            /* try to use shared sockets of master */
+            if (ngx_process > NGX_PROCESS_MASTER) {
+                
+                if (!shinfo) {
+                    shinfo = ngx_get_listening_share_info(cycle, ngx_getpid());
+
+                    if (!shinfo) {
+                        failed = 1;
+                        break;
+                    }
+                }
+
+                s = ngx_shared_socket(ls[i].sockaddr->sa_family, ls[i].type, 0,
+                    shinfo+i);
+
+                if (s == (ngx_socket_t) -1) {
+                    ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
+                                  ngx_socket_n " for inherited socket %V failed", 
+                                  &ls[i].addr_text);
+                    return NGX_ERROR;
+                }
+                    
+                ngx_log_debug4(NGX_LOG_DEBUG_CORE, log, 0, "[%d] shared socket %d %V: %d",
+                    ngx_process, i, &ls[i].addr_text, s);
+
+                ls[i].fd = s;
+
+                ls[i].listen = 1;
+
+                continue;
+            }
+#endif
+
             if (ls[i].inherited) {
 
                 /* TODO: close on exit */
@@ -430,6 +467,8 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
             }
 
             s = ngx_socket(ls[i].sockaddr->sa_family, ls[i].type, 0);
+            ngx_log_debug4(NGX_LOG_DEBUG_CORE, log, 0, "[%d] listener %d %V: %d",
+                ngx_process, i, &ls[i].addr_text, s);
 
             if (s == (ngx_socket_t) -1) {
                 ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
@@ -863,6 +902,9 @@ ngx_close_listening_sockets(ngx_cycle_t *cycle)
     if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
         return;
     }
+
+    ngx_log_debug2(NGX_LOG_DEBUG_CORE, cycle->log, 0, "[%d] close %d listener(s)",
+        ngx_process, cycle->listening.nelts);
 
     ngx_accept_mutex_held = 0;
     ngx_use_accept_mutex = 0;
