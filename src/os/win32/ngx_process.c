@@ -70,6 +70,10 @@ ngx_spawn_process(ngx_cycle_t *cycle, char *name, ngx_int_t respawn)
         return pid;
     }
 
+#if (NGX_WIN32)
+    ngx_share_listening_sockets(cycle, pid);
+#endif
+
     ngx_memzero(&ngx_processes[s], sizeof(ngx_process_t));
 
     ngx_processes[s].handle = ctx.child;

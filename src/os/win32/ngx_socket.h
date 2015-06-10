@@ -11,6 +11,7 @@
 
 #include <ngx_config.h>
 #include <ngx_core.h>
+#include <ngx_process.h>
 
 
 #define NGX_WRITE_SHUTDOWN SD_SEND
@@ -202,6 +203,15 @@ extern LPFN_DISCONNECTEX          ngx_disconnectex;
 
 int ngx_tcp_push(ngx_socket_t s);
 #define ngx_tcp_push_n            "tcp_push()"
+
+
+typedef WSAPROTOCOL_INFO * ngx_shared_socket_info;
+#define ngx_shared_socket(af, type, proto, shinfo)                           \
+    WSASocket(af, type, proto, shinfo, 0, WSA_FLAG_OVERLAPPED)
+
+ngx_shared_socket_info ngx_get_listening_share_info(ngx_cycle_t *cycle, 
+    ngx_pid_t pid);
+ngx_int_t ngx_share_listening_sockets(ngx_cycle_t *cycle, ngx_pid_t pid);
 
 
 #endif /* _NGX_SOCKET_H_INCLUDED_ */
