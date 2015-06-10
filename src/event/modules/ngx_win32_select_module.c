@@ -214,6 +214,8 @@ ngx_select_del_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
 }
 
 
+static ngx_uint_t ngx_select_err_cntr = 0;
+
 static ngx_int_t
 ngx_select_process_events(ngx_cycle_t *cycle, ngx_msec_t timer,
     ngx_uint_t flags)
@@ -278,7 +280,16 @@ ngx_select_process_events(ngx_cycle_t *cycle, ngx_msec_t timer,
                    "select ready %d", ready);
 
     if (err) {
-        ngx_log_error(NGX_LOG_ALERT, cycle->log, err, "select() failed");
+        /* because select failed (possible nowait) - prevent extreme growth of log file */
+        if (++ngx_select_err_cntr < 10) {
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, err, "select() failed");
+        } else if (ngx_select_err_cntr == 10) {
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, err, "select() failed," 
+								" %d times - no more log)", 10);
+        } else {
+            /* prevent 100% cpu usage if nowait - WSAEINVAL etc. */
+            ngx_msleep(500);
+        }
 
         if (err == WSAENOTSOCK) {
             ngx_select_repair_fd_sets(cycle);
@@ -286,6 +297,7 @@ ngx_select_process_events(ngx_cycle_t *cycle, ngx_msec_t timer,
 
         return NGX_ERROR;
     }
+    ngx_select_err_cntr = 0;
 
     if (ready == 0) {
         if (timer != NGX_TIMER_INFINITE) {
