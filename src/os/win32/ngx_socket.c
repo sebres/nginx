@@ -82,6 +82,7 @@ ngx_int_t ngx_get_listening_share(ngx_cycle_t *cycle)
 ngx_shared_socket_info 
 ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_pid_t pid)
 {
+    ngx_int_t            waitint;
     ngx_int_t            waitcnt;
     ngx_shm_listener_t  *shml;
 
@@ -92,7 +93,8 @@ ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_pid_t pid)
     }
 
     /* TODO: wait time and count configurable */
-    waitcnt = 5;
+    waitcnt = 10;
+    waitint = 5;
     do {
     
         shml = (ngx_shm_listener_t *)shm_listener.addr;
@@ -100,7 +102,11 @@ ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_pid_t pid)
             break;
         }
         /* not found - wait until master process shared sockets */
-        ngx_msleep(100);
+        ngx_msleep(waitint);
+        if (waitint < 100) {
+            waitint += waitint; 
+            waitint = min(100, waitint);
+        }
     
     } while (waitcnt--);
 
