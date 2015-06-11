@@ -641,6 +641,12 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+#if (NGX_WIN32)
+    if (ngx_process > NGX_PROCESS_MASTER) {
+        ngx_free_listening_share(cycle);
+    }
+#endif
+
     return NGX_OK;
 }
 
@@ -905,6 +911,10 @@ ngx_close_listening_sockets(ngx_cycle_t *cycle)
 
     ngx_log_debug2(NGX_LOG_DEBUG_CORE, cycle->log, 0, "[%d] close %d listener(s)",
         ngx_process, cycle->listening.nelts);
+
+#if (NGX_WIN32)
+    ngx_free_listening_share(cycle);
+#endif
 
     ngx_accept_mutex_held = 0;
     ngx_use_accept_mutex = 0;
