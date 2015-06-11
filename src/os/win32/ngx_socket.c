@@ -79,6 +79,17 @@ ngx_int_t ngx_get_listening_share(ngx_cycle_t *cycle)
 }
 
 
+void ngx_free_listening_share(ngx_cycle_t *cycle)
+{
+    if (shm_listener.addr) {
+
+        ngx_shm_free(&shm_listener);
+        shm_listener.addr = NULL;
+
+    }
+}
+
+
 ngx_shared_socket_info 
 ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_pid_t pid)
 {
