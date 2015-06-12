@@ -13,6 +13,7 @@ typedef struct {
 
     ngx_pid_t      pid;
     ngx_uint_t     nelts;
+    ngx_int_t      worker_processes;
 
     /* WSAPROTOCOL_INFO * [listening.nelts] */
 
@@ -90,25 +91,30 @@ void ngx_free_listening_share(ngx_cycle_t *cycle)
 }
 
 
-ngx_shared_socket_info 
-ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_pid_t pid)
+ngx_int_t
+ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_shared_socket_info * pshinfo, ngx_pid_t pid)
 {
     ngx_int_t            waitint;
     ngx_int_t            waitcnt;
     ngx_shm_listener_t  *shml;
 
+    *pshinfo = NULL;
+
     if (shm_listener.addr == NULL) {
         if (ngx_get_listening_share(cycle) != NGX_OK) {
-            return NULL;
+            return NGX_ERROR;
         }
     }
-
+    shml = (ngx_shm_listener_t *)shm_listener.addr;
+        
     /* TODO: wait time and count configurable */
     waitcnt = 10;
     waitint = 5;
     do {
-    
-        shml = (ngx_shm_listener_t *)shm_listener.addr;
+        if (shml->worker_processes == 1) {
+            *pshinfo = NGX_CONF_UNSET_PTR;
+            return NGX_OK;
+        }
         if (shml->pid == pid) {
             break;
         }
@@ -124,15 +130,17 @@ ngx_get_listening_share_info(ngx_cycle_t *cycle, ngx_pid_t pid)
     if (shml->pid != pid) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0, 
             "wait for shared socket failed, process %d, found %d", pid, shml->pid);
-        return NULL;
+        return NGX_AGAIN;
     }
     if (cycle->listening.nelts > shml->nelts) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0, "unexpected shared len,"
             " expected %d, but got %d", cycle->listening.nelts, shml->nelts);
-        return NULL;
+        return NGX_ERROR;
     }
     
-    return (WSAPROTOCOL_INFO *)(shml+1);
+    *pshinfo = (WSAPROTOCOL_INFO *)(shml+1);
+
+    return NGX_OK;
 }
 
 
@@ -141,6 +149,7 @@ ngx_share_listening_sockets(ngx_cycle_t *cycle, ngx_pid_t pid)
 {
     ngx_uint_t           i;
     ngx_listening_t     *ls;
+    ngx_core_conf_t     *ccf;
     ngx_shm_listener_t  *shml;
     WSAPROTOCOL_INFO    *protoInfo;
 
@@ -148,7 +157,11 @@ ngx_share_listening_sockets(ngx_cycle_t *cycle, ngx_pid_t pid)
         return NGX_OK;
     }
 
-    ls = cycle->listening.elts;
+    ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
+    if (ccf->worker_processes == 1) {
+        /* close before create shmem (to avoid free shmem) */
+        ngx_close_listening_sockets(cycle);
+    }
 
     /* create shared memory for shared listener info */
     ngx_get_listening_share(cycle);
@@ -157,30 +170,32 @@ ngx_share_listening_sockets(ngx_cycle_t *cycle, ngx_pid_t pid)
         "[%d] share %d listener(s) for %d",
         ngx_process, cycle->listening.nelts, pid);
 
-    if (!cycle->listening.nelts)
-        return NGX_OK;
+    ls = cycle->listening.elts;
 
     /* share sockets for worker with pid */
     shml = (ngx_shm_listener_t *)shm_listener.addr;
     protoInfo = (WSAPROTOCOL_INFO *)(shml+1);
 
     shml->nelts = cycle->listening.nelts;
+    shml->worker_processes = ccf->worker_processes;
 
-    for (i = 0; i < cycle->listening.nelts; i++) {
+    if (ccf->worker_processes > 1) {
+        for (i = 0; i < cycle->listening.nelts; i++) {
 
-        if (ls[i].ignore) {
-            continue;
+            if (ls[i].ignore) {
+                continue;
+            }
+
+            ngx_log_debug4(NGX_LOG_DEBUG_CORE, cycle->log, 0, 
+                "[%d] dup %d listener %d for %d", ngx_process, i, ls[i].fd, pid);
+
+            if (WSADuplicateSocket(ls[i].fd, pid, &protoInfo[i]) != 0) {
+                ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
+                    "WSADuplicateSocket() failed");
+                return NGX_ERROR;
+            };
+
         }
-
-        ngx_log_debug4(NGX_LOG_DEBUG_CORE, cycle->log, 0, 
-            "[%d] dup %d listener %d for %d", ngx_process, i, ls[i].fd, pid);
-
-        if (WSADuplicateSocket(ls[i].fd, pid, &protoInfo[i]) != 0) {
-            ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_socket_errno,
-                "WSADuplicateSocket() failed");
-            return NGX_ERROR;
-        };
-
     }
 
     shml->pid = pid;

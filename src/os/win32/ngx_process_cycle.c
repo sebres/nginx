@@ -113,11 +113,6 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     events[2] = ngx_reopen_event;
     events[3] = ngx_reload_event;
 
-/* does not close listener for win32, will be shared */
-#if (!NGX_WIN32)
-    ngx_close_listening_sockets(cycle);
-#endif
-
     if (ngx_start_worker_processes(cycle, NGX_PROCESS_RESPAWN) == 0) {
         exit(2);
     }
@@ -209,11 +204,6 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
             }
 
             ngx_cycle = cycle;
-
-/* does not close listener for win32, will be shared */
-#if (!NGX_WIN32)
-            ngx_close_listening_sockets(cycle);
-#endif
 
             if (ngx_start_worker_processes(cycle, NGX_PROCESS_JUST_RESPAWN)) {
                 ngx_quit_worker_processes(cycle, 1);
