@@ -427,33 +427,33 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
             /* try to use shared sockets of master */
             if (ngx_process > NGX_PROCESS_MASTER) {
                 
-                if (!shinfo) {
-                    shinfo = ngx_get_listening_share_info(cycle, ngx_getpid());
+                if (!shinfo && ngx_get_listening_share_info(cycle, &shinfo,
+                                    ngx_getpid()) != NGX_OK) {
+                    failed = 1;
+                    break;
+                }
 
-                    if (!shinfo) {
-                        failed = 1;
-                        break;
+                if (shinfo != NGX_CONF_UNSET_PTR) {
+
+                    s = ngx_shared_socket(ls[i].sockaddr->sa_family, ls[i].type, 0,
+                        shinfo+i);
+
+                    if (s == (ngx_socket_t) -1) {
+                        ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
+                                      ngx_socket_n " for inherited socket %V failed", 
+                                      &ls[i].addr_text);
+                        return NGX_ERROR;
                     }
+                        
+                    ngx_log_debug4(NGX_LOG_DEBUG_CORE, log, 0, "[%d] shared socket %d %V: %d",
+                        ngx_process, i, &ls[i].addr_text, s);
+
+                    ls[i].fd = s;
+
+                    ls[i].listen = 1;
+
+                    continue;
                 }
-
-                s = ngx_shared_socket(ls[i].sockaddr->sa_family, ls[i].type, 0,
-                    shinfo+i);
-
-                if (s == (ngx_socket_t) -1) {
-                    ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
-                                  ngx_socket_n " for inherited socket %V failed", 
-                                  &ls[i].addr_text);
-                    return NGX_ERROR;
-                }
-                    
-                ngx_log_debug4(NGX_LOG_DEBUG_CORE, log, 0, "[%d] shared socket %d %V: %d",
-                    ngx_process, i, &ls[i].addr_text, s);
-
-                ls[i].fd = s;
-
-                ls[i].listen = 1;
-
-                continue;
             }
 #endif
 

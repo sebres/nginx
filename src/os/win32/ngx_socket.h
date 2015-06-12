@@ -209,8 +209,9 @@ typedef WSAPROTOCOL_INFO * ngx_shared_socket_info;
 #define ngx_shared_socket(af, type, proto, shinfo)                           \
     WSASocket(af, type, proto, shinfo, 0, WSA_FLAG_OVERLAPPED)
 
-ngx_shared_socket_info ngx_get_listening_share_info(ngx_cycle_t *cycle, 
-    ngx_pid_t pid);
+ngx_int_t
+ngx_get_listening_share_info(ngx_cycle_t *cycle, 
+    ngx_shared_socket_info * pshinfo, ngx_pid_t pid);
 void ngx_free_listening_share(ngx_cycle_t *cycle);
 ngx_int_t ngx_share_listening_sockets(ngx_cycle_t *cycle, ngx_pid_t pid);
 
