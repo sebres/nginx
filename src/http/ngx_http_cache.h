@@ -118,6 +118,8 @@ typedef struct {
     time_t                           valid_sec;
     time_t                           last_modified;
     time_t                           date;
+    /* unused - todo: delete crc32 next time cache header format changed */
+    uint32_t                         crc32;
     u_short                          valid_msec;
     u_short                          header_start;
     u_short                          body_start;
