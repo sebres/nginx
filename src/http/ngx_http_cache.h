@@ -64,7 +64,6 @@ typedef struct {
 struct ngx_http_cache_s {
     ngx_file_t                       file;
     ngx_array_t                      keys;
-    uint32_t                         crc32;
     u_char                           key[NGX_HTTP_CACHE_KEY_LEN];
     u_char                           main[NGX_HTTP_CACHE_KEY_LEN];
 
@@ -119,6 +118,7 @@ typedef struct {
     time_t                           valid_sec;
     time_t                           last_modified;
     time_t                           date;
+    /* unused - todo: delete crc32 next time cache header format changed */
     uint32_t                         crc32;
     u_short                          valid_msec;
     u_short                          header_start;

@@ -233,7 +233,6 @@ ngx_http_file_cache_create_key(ngx_http_request_t *r)
 
     len = 0;
 
-    ngx_crc32_init(c->crc32);
     ngx_md5_init(&md5);
 
     key = c->keys.elts;
@@ -243,14 +242,12 @@ ngx_http_file_cache_create_key(ngx_http_request_t *r)
 
         len += key[i].len;
 
-        ngx_crc32_update(&c->crc32, key[i].data, key[i].len);
         ngx_md5_update(&md5, key[i].data, key[i].len);
     }
 
     c->header_start = sizeof(ngx_http_file_cache_header_t)
                       + sizeof(ngx_http_file_cache_key) + len + 1;
 
-    ngx_crc32_final(c->crc32);
     ngx_md5_final(c->key, &md5);
 
     ngx_memcpy(c->main, c->key, NGX_HTTP_CACHE_KEY_LEN);
@@ -521,9 +518,12 @@ wakeup:
 static ngx_int_t
 ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
 {
+    u_char                        *p;
     time_t                         now;
     ssize_t                        n;
+    ngx_str_t                     *key;
     ngx_int_t                      rc;
+    ngx_uint_t                     i;
     ngx_http_file_cache_t         *cache;
     ngx_http_file_cache_header_t  *h;
 
@@ -547,10 +547,26 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
         return NGX_DECLINED;
     }
 
-    if (h->crc32 != c->crc32) {
+    if (h->header_start != c->header_start) {
         ngx_log_error(NGX_LOG_CRIT, r->connection->log, 0,
-                      "cache file \"%s\" has md5 collision", c->file.name.data);
+                      "cache file \"%s\" has hash collision", c->file.name.data);
         return NGX_DECLINED;
+    }
+
+    p = c->buf->pos + sizeof(ngx_http_file_cache_header_t)
+        + sizeof(ngx_http_file_cache_key);
+
+    /* because any hash is insufficient, check keys are equal also */
+    key = c->keys.elts;
+    for (i = 0; i < c->keys.nelts; i++) {
+        if (ngx_memcmp(p, key[i].data, key[i].len) != 0) {
+            ngx_log_error(NGX_LOG_CRIT, r->connection->log, 0,
+                          "cache file \"%s\" has hash collision",
+                          c->file.name.data);
+            return NGX_DECLINED;
+        }
+
+        p += key[i].len;
     }
 
     if ((size_t) h->body_start > c->body_start) {
@@ -583,7 +599,6 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
     c->last_modified = h->last_modified;
     c->date = h->date;
     c->valid_msec = h->valid_msec;
-    c->header_start = h->header_start;
     c->body_start = h->body_start;
     c->etag.len = h->etag_len;
     c->etag.data = h->etag;
@@ -1229,7 +1244,6 @@ ngx_http_file_cache_set_header(ngx_http_request_t *r, u_char *buf)
     h->valid_sec = c->valid_sec;
     h->last_modified = c->last_modified;
     h->date = c->date;
-    h->crc32 = c->crc32;
     h->valid_msec = (u_short) c->valid_msec;
     h->header_start = (u_short) c->header_start;
     h->body_start = (u_short) c->body_start;
@@ -1468,7 +1482,6 @@ ngx_http_file_cache_update_header(ngx_http_request_t *r)
 
     if (h.version != NGX_HTTP_CACHE_VERSION
         || h.last_modified != c->last_modified
-        || h.crc32 != c->crc32
         || h.header_start != c->header_start
         || h.body_start != c->body_start)
     {
@@ -1489,7 +1502,6 @@ ngx_http_file_cache_update_header(ngx_http_request_t *r)
     h.valid_sec = c->valid_sec;
     h.last_modified = c->last_modified;
     h.date = c->date;
-    h.crc32 = c->crc32;
     h.valid_msec = (u_short) c->valid_msec;
     h.header_start = (u_short) c->header_start;
     h.body_start = (u_short) c->body_start;
