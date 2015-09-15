@@ -70,6 +70,7 @@ typedef int               ngx_err_t;
 #define ngx_set_errno(err)         errno = err
 #define ngx_set_socket_errno(err)  errno = err
 
+#define ngx_err_exists(err)        (err == EEXIST)
 
 u_char *ngx_strerror(ngx_err_t err, u_char *errstr, size_t size);
 ngx_int_t ngx_strerror_init(void);

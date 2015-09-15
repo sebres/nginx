@@ -548,7 +548,7 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
     }
 
     if (h->header_start != c->header_start) {
-        ngx_log_error(NGX_LOG_CRIT, r->connection->log, 0,
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
                       "cache file \"%s\" has hash collision", c->file.name.data);
         return NGX_DECLINED;
     }
@@ -560,7 +560,7 @@ ngx_http_file_cache_read(ngx_http_request_t *r, ngx_http_cache_t *c)
     key = c->keys.elts;
     for (i = 0; i < c->keys.nelts; i++) {
         if (ngx_memcmp(p, key[i].data, key[i].len) != 0) {
-            ngx_log_error(NGX_LOG_CRIT, r->connection->log, 0,
+            ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
                           "cache file \"%s\" has hash collision",
                           c->file.name.data);
             return NGX_DECLINED;

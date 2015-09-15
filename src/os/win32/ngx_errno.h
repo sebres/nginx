@@ -27,6 +27,7 @@ typedef DWORD                      ngx_err_t;
 #define NGX_EACCES                 ERROR_ACCESS_DENIED
 /* it's seems that ERROR_FILE_EXISTS is not appropriate error code */
 #define NGX_EEXIST                 ERROR_ALREADY_EXISTS
+#define NGX_EEXIST2                ERROR_FILE_EXISTS
 /*
  * could not found cross volume directory move error code,
  * so use ERROR_WRONG_DISK as stub one
@@ -60,6 +61,8 @@ typedef DWORD                      ngx_err_t;
 #define NGX_EINVAL                 WSAEINVAL
 #define NGX_EMFILE                 WSAEMFILE
 #define NGX_ENFILE                 WSAEMFILE
+
+#define ngx_err_exists(err)        (err == NGX_EEXIST || err == NGX_EEXIST2)
 
 
 u_char *ngx_strerror(ngx_err_t err, u_char *errstr, size_t size);

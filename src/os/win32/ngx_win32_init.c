@@ -55,6 +55,12 @@ static GUID tp_guid = WSAID_TRANSMITPACKETS;
 static GUID cx_guid = WSAID_CONNECTEX;
 static GUID dx_guid = WSAID_DISCONNECTEX;
 
+/* critical sections used in win32 sources */
+extern LPCRITICAL_SECTION ngx_delete_file_queue_lock;
+/* 
+extern LPCRITICAL_SECTION ngx_connect_lock; 
+*/
+
 
 ngx_int_t
 ngx_os_init(ngx_log_t *log)
@@ -123,6 +129,12 @@ ngx_os_init(ngx_log_t *log)
     ngx_cacheline_size = NGX_CPU_CACHE_LINE;
 
     for (n = ngx_pagesize; n >>= 1; ngx_pagesize_shift++) { /* void */ }
+
+    /* init all critical sections */
+    InitializeCriticalSection(ngx_delete_file_queue_lock);
+    /*
+    InitializeCriticalSection(ngx_connect_lock);    
+    */
 
     /* delete default "C" locale for _wcsicmp() */
     setlocale(LC_ALL, "");

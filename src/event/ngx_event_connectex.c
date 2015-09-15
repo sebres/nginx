@@ -14,6 +14,7 @@
 
 
 static CRITICAL_SECTION  connect_lock;
+static LPCRITICAL_SECTION ngx_connect_lock = &connect_lock;
 static int               nconnects;
 static ngx_connection_t  pending_connects[NGX_MAX_PENDING_CONN];
 

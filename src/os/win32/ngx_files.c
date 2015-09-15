@@ -11,6 +11,22 @@
 
 #define NGX_UTF16_BUFLEN  256
 
+typedef struct _ngx_delete_file_queue_files_t ngx_delete_file_queue_files_t;
+
+typedef struct _ngx_delete_file_queue_files_t {
+    ngx_delete_file_queue_files_t *prev;
+    ngx_delete_file_queue_files_t *next;
+};
+
+static struct {
+    ngx_delete_file_queue_files_t *first;
+    ngx_delete_file_queue_files_t *last;
+    CRITICAL_SECTION               lock;
+} ngx_delete_file_queue = {NULL, NULL, 0};
+
+LPCRITICAL_SECTION ngx_delete_file_queue_lock = &ngx_delete_file_queue.lock;
+
+
 static ngx_int_t ngx_win32_check_filename(u_char *name, u_short *u,
     size_t len);
 static u_short *ngx_utf8_to_utf16(u_short *utf16, u_char *utf8, size_t *len);
@@ -202,19 +218,89 @@ ngx_write_console(ngx_fd_t fd, void *buf, size_t size)
 }
 
 
+void 
+ngx_delete_file_queue_add(ngx_delete_file_queue_files_t * qentry) 
+{
+    qentry->next = NULL;
+    
+    EnterCriticalSection(&ngx_delete_file_queue.lock);
+
+    qentry->prev = ngx_delete_file_queue.last;
+    if (ngx_delete_file_queue.last)
+        ngx_delete_file_queue.last->next = qentry;
+    ngx_delete_file_queue.last = qentry;
+    if (!ngx_delete_file_queue.first)
+        ngx_delete_file_queue.first = qentry;
+    
+    LeaveCriticalSection(&ngx_delete_file_queue.lock);
+}
+
+
+void 
+ngx_delete_file_queue_clean(ngx_log_t *log)
+{
+    ngx_delete_file_queue_files_t *qentry, *del_qentry;
+    u_char                   *name;
+    ngx_err_t                 err;
+
+    if (!TryEnterCriticalSection(&ngx_delete_file_queue.lock)) {
+        return;
+    }
+
+    qentry = ngx_delete_file_queue.first;
+    while (qentry) 
+    {
+        name = (u_char *)(qentry+1);
+        del_qentry = qentry;
+        ngx_log_error(NGX_LOG_INFO, log, 0,
+                      "queued delete \"%s\"", name);
+        if (DeleteFile((const char *) name) == 0) {
+            err = ngx_errno;
+            if (err == NGX_ENOENT) {
+            } else if (err == NGX_EACCES) {
+                /* don't detach - try again later */
+                del_qentry = NULL;
+            } else {
+                ngx_log_error(NGX_LOG_CRIT, log, err,
+                              "DeleteFile() \"%s\" failed", name);
+            }
+        }
+        qentry = qentry->next;
+        /* successful deleted - free */
+        if (del_qentry) {
+            if (del_qentry == ngx_delete_file_queue.first)
+                ngx_delete_file_queue.first = del_qentry->next;
+            if (del_qentry == ngx_delete_file_queue.last)
+                ngx_delete_file_queue.last = del_qentry->prev;
+            if (del_qentry->prev)
+                del_qentry->prev->next = del_qentry->next;
+            if (del_qentry->next)
+                del_qentry->next->prev = del_qentry->prev;
+            ngx_free(del_qentry);
+        }
+    }
+
+    LeaveCriticalSection(&ngx_delete_file_queue.lock);
+}
+
+
 ngx_err_t
 ngx_win32_rename_file(ngx_str_t *from, ngx_str_t *to, ngx_log_t *log)
 {
     u_char             *name;
     ngx_err_t           err;
-    ngx_uint_t          collision;
+    ngx_uint_t          collision, temp_renamed;
     ngx_atomic_uint_t   num;
+    ngx_delete_file_queue_files_t * qentry;
 
-    name = ngx_alloc(to->len + 1 + NGX_ATOMIC_T_LEN + 1 + sizeof("DELETE"),
-                     log);
-    if (name == NULL) {
+    qentry = (ngx_delete_file_queue_files_t *)ngx_alloc(sizeof(*qentry) +
+        to->len + 1 + NGX_ATOMIC_T_LEN + 1 + sizeof("DELETE"),
+        log);
+    if (qentry == NULL) {
         return NGX_ENOMEM;
     }
+    /* reserve place for pointer to next to delete */
+    name = (u_char *)(qentry+1);
 
     ngx_memcpy(name, to->data, to->len);
 
@@ -222,21 +308,39 @@ ngx_win32_rename_file(ngx_str_t *from, ngx_str_t *to, ngx_log_t *log)
 
     /* mutex_lock() (per cache or single ?) */
 
+    /* temporary rename target to .delete */
+    temp_renamed = 0;
     for ( ;; ) {
         num = ngx_next_temp_number(collision);
 
         ngx_sprintf(name + to->len, ".%0muA.DELETE%Z", num);
 
         if (MoveFile((const char *) to->data, (const char *) name) != 0) {
+            temp_renamed = 1;
             break;
         }
 
         collision = 1;
 
-        ngx_log_error(NGX_LOG_CRIT, log, ngx_errno,
+        err = ngx_errno;
+        if (ngx_err_exists(err)) {
+            continue;
+        }
+        /* target file could be already renamed from another worker */
+        if (err == NGX_ENOENT) {
+            break;
+        }
+        /* target file can't be removed (blocked from another worker) */
+        if (err == NGX_EACCES) {
+            ngx_log_debug2(NGX_LOG_DEBUG_CORE, log, err,
+                           "MoveFile() \"%s\" to \"%s\" failed", to->data, name);
+            goto done;
+        }
+        ngx_log_error(NGX_LOG_CRIT, log, err,
                       "MoveFile() \"%s\" to \"%s\" failed", to->data, name);
     }
 
+    /* rename source to target */
     if (MoveFile((const char *) from->data, (const char *) to->data) == 0) {
         err = ngx_errno;
 
@@ -244,14 +348,42 @@ ngx_win32_rename_file(ngx_str_t *from, ngx_str_t *to, ngx_log_t *log)
         err = 0;
     }
 
-    if (DeleteFile((const char *) name) == 0) {
-        ngx_log_error(NGX_LOG_CRIT, log, ngx_errno,
-                      "DeleteFile() \"%s\" failed", name);
+    /* try to delete temp file */
+    if (temp_renamed && DeleteFile((const char *) name) == 0) {
+        ngx_err_t err2 = ngx_errno;
+        /* original file could be removed from another worker */
+        if (err2 != NGX_ENOENT) {
+            /* 
+             * file can't be removed (blocked from another worker), 
+             * add it to delayed queue - try delete such files later
+             */
+            if (err2 == NGX_EACCES) {
+                ngx_log_error(NGX_LOG_INFO, log, 0,
+                              "delete later \"%s\"", name);
+                ngx_delete_file_queue_add(qentry);
+                qentry = NULL;
+            } else {
+                ngx_log_error(NGX_LOG_CRIT, log, err2,
+                              "DeleteFile() \"%s\" failed", name);
+            }
+        }
     }
+
+done:
 
     /* mutex_unlock() */
 
-    ngx_free(name);
+    if (qentry) {
+        ngx_free(qentry);
+    }
+
+    /* 
+     * delayed clean up (try to delete files)
+     * todo: rewrite handling of this queue to anything like idle event
+     */ 
+    if (ngx_delete_file_queue.first) {
+        ngx_delete_file_queue_clean(log);
+    }
 
     return err;
 }

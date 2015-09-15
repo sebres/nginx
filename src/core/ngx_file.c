@@ -187,7 +187,7 @@ ngx_create_temp_file(ngx_file_t *file, ngx_path_t *path, ngx_pool_t *pool,
 
         err = ngx_errno;
 
-        if (err == NGX_EEXIST) {
+        if (ngx_err_exists(err)) {
             n = (uint32_t) ngx_next_temp_number(1);
             continue;
         }
@@ -630,6 +630,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
     u_char           *name;
     ngx_err_t         err;
     ngx_copy_file_t   cf;
+    ngx_uint_t        log_level = NGX_LOG_CRIT;
 
 #if !(NGX_WIN32)
 
@@ -683,11 +684,22 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 #if (NGX_WIN32)
 
-    if (err == NGX_EEXIST) {
-        err = ngx_win32_rename_file(src, to, ext->log);
+    if (ngx_err_exists(err)) {
+        /* file seems to be created from another worker */
+        int cntr = 5;
+        do {
 
-        if (err == 0) {
-            return NGX_OK;
+            err = ngx_win32_rename_file(src, to, ext->log);
+            if (err == 0) {
+                return NGX_OK;
+            }
+
+        } while (cntr-- && ngx_err_exists(err));
+
+        if (err == NGX_ENOENT || err == NGX_EACCES) {
+            /* log not as critical - expected errors by multiprocessing (ex.: cache) */
+            log_level = NGX_LOG_INFO;
+            goto failed;
         }
     }
 
@@ -742,15 +754,15 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
 
 failed:
 
-    if (ext->delete_file) {
+    if (ext->delete_file && err != NGX_ENOENT) {
         if (ngx_delete_file(src->data) == NGX_FILE_ERROR) {
-            ngx_log_error(NGX_LOG_CRIT, ext->log, ngx_errno,
+            ngx_log_error(log_level, ext->log, ngx_errno,
                           ngx_delete_file_n " \"%s\" failed", src->data);
         }
     }
 
     if (err) {
-        ngx_log_error(NGX_LOG_CRIT, ext->log, err,
+        ngx_log_error(log_level, ext->log, err,
                       ngx_rename_file_n " \"%s\" to \"%s\" failed",
                       src->data, to->data);
     }
