@@ -251,13 +251,28 @@ ngx_console_init(ngx_cycle_t *cycle)
 
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
-    if (ccf->daemon) {
-        if (FreeConsole() == 0) {
-            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
-                          "FreeConsole() failed");
+    if (ccf->daemon != NGX_CONF_UNSET && ccf->daemon) {
+        /* detect used a parent copnsole ... */
+        DWORD dwProcessId;
+        GetWindowThreadProcessId(GetConsoleWindow(), &dwProcessId);
+        /* 
+         * detach foreign console (to start detached use "start" etc.)
+         * because, we should set handler and detect console events, such shutdown
+         */
+        if (dwProcessId != GetCurrentProcessId()) {
+            ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "free console");
+            if (FreeConsole() == 0) {
+                ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+                              "FreeConsole() failed");
+            }
+            ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, "allocate console");
+            if (AllocConsole() == 0) {
+                ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
+                              "AllocConsole() failed");
+            }
         }
-
-        return;
+        /* hide my own console */
+        ShowWindow(GetConsoleWindow(), 0);
     }
 
     if (SetConsoleCtrlHandler(ngx_console_handler, 1) == 0) {
@@ -271,6 +286,8 @@ static int __stdcall
 ngx_console_handler(u_long type)
 {
     char  *msg;
+
+    ngx_log_error(NGX_LOG_DEBUG, ngx_cycle->log, 0, "console handler signaled: %d", type);
 
     switch (type) {
 
@@ -290,19 +307,27 @@ ngx_console_handler(u_long type)
         msg = "user logs off, exiting";
         break;
 
+    case CTRL_SHUTDOWN_EVENT:
+        msg = "shutdown system, exiting";
+        break;
+
     default:
         return 0;
     }
 
     ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0, msg);
 
-    if (ngx_stop_event == NULL) {
-        return 1;
+    if (ngx_stop_event != NULL) {
+        if (SetEvent(ngx_stop_event) == 0) {
+            ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
+                          "SetEvent(\"%s\") failed", ngx_stop_event_name);
+        }
     }
-
-    if (SetEvent(ngx_stop_event) == 0) {
-        ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-                      "SetEvent(\"%s\") failed", ngx_stop_event_name);
+    if (ngx_quit_event != NULL) {
+        if (SetEvent(ngx_quit_event) == 0) {
+            ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
+                          "SetEvent(\"%s\") failed", ngx_quit_event_name);
+        }
     }
 
     return 1;
