@@ -778,7 +778,7 @@ static ngx_int_t
 ngx_win32_check_filename(u_char *name, u_short *u, size_t len)
 {
     u_char     *p, ch;
-    u_long      n;
+    u_long      n = 0;
     u_short    *lu;
     ngx_err_t   err;
     enum {
@@ -796,6 +796,14 @@ ngx_win32_check_filename(u_char *name, u_short *u, size_t len)
 
     for (p = name; *p; p++) {
         ch = *p;
+
+        /* 
+         * check path can contains short name segments, to prevent very slow 
+         * long match test (because GetLongPathNameW internal works recursive)
+         */
+        if (ch == '~') {
+            n = 1;
+        }
 
         switch (state) {
 
@@ -881,24 +889,26 @@ ngx_win32_check_filename(u_char *name, u_short *u, size_t len)
         goto invalid;
     }
 
-    /* check if long name match */
+    /* if path contains short name segments (~), check the long name match */
+    if (n) {
 
-    lu = malloc(len * 2);
-    if (lu == NULL) {
-        return NGX_ERROR;
+        lu = malloc(len * 2);
+        if (lu == NULL) {
+            return NGX_ERROR;
+        }
+
+        n = GetLongPathNameW(u, lu, len);
+
+        if (n == 0) {
+            goto failed;
+        }
+
+        if (n != len - 1 || _wcsicmp(u, lu) != 0) {
+            goto invalid;
+        }
+
+        ngx_free(lu);
     }
-
-    n = GetLongPathNameW(u, lu, len);
-
-    if (n == 0) {
-        goto failed;
-    }
-
-    if (n != len - 1 || _wcsicmp(u, lu) != 0) {
-        goto invalid;
-    }
-
-    ngx_free(lu);
 
     return NGX_OK;
 
