@@ -375,6 +375,12 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t type)
         }
     }
 
+    /* 
+     * after we have started all workers, that share listener - close listeners
+     * in master (prevent to listen there without accept of incomming connections)
+     */
+    ngx_close_listening_sockets(cycle);
+
     return n;
 }
 
