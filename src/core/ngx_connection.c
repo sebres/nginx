@@ -448,11 +448,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                     ngx_log_debug4(NGX_LOG_DEBUG_CORE, log, 0, "[%d] shared socket %d %V: %d",
                         ngx_process, i, &ls[i].addr_text, s);
 
-                    ls[i].fd = s;
-
-                    ls[i].listen = 1;
-
-                    continue;
+                    goto do_listen;
                 }
             }
 #endif
@@ -604,6 +600,21 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                 }
             }
 #endif
+
+#if (NGX_WIN32)
+            /* don't listen sockets in master */
+            if (ngx_process <= NGX_PROCESS_MASTER) {
+                ls[i].fd = s;
+
+                continue;
+            }
+
+do_listen:
+#endif
+
+            ngx_log_debug2(NGX_LOG_DEBUG_CORE, log, 0,
+                           "listen() to %V, backlog %d ...",
+                                  &ls[i].addr_text, ls[i].backlog);
 
             if (listen(s, ls[i].backlog) == -1) {
                 err = ngx_socket_errno;
