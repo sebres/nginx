@@ -2,12 +2,12 @@
 /*
  * Copyright (C) Nginx, Inc.
  * Copyright (C) Valentin V. Bartenev
- * Copyright (C) Ruslan Ermilov
  */
 
 
 #include <ngx_config.h>
 #include <ngx_core.h>
+#include <ngx_semaphore.h>
 #include <ngx_thread_pool.h>
 
 
@@ -17,26 +17,27 @@ typedef struct {
 
 
 typedef struct {
-    ngx_thread_task_t        *first;
-    ngx_thread_task_t       **last;
+    ngx_atomic_t              first;
+    ngx_atomic_t              last_p;
 } ngx_thread_pool_queue_t;
-
-#define ngx_thread_pool_queue_init(q)                                         \
-    (q)->first = NULL;                                                        \
-    (q)->last = &(q)->first
 
 
 struct ngx_thread_pool_s {
-    ngx_thread_mutex_t        mtx;
-    ngx_thread_pool_queue_t   queue;
-    ngx_int_t                 waiting;
-    ngx_thread_cond_t         cond;
+    ngx_sem_t                 sem;
+
+    ngx_uint_t                task_id;
+
+    ngx_thread_pool_queue_t   in;
+    ngx_thread_pool_queue_t   out;
+
+    ngx_connection_t         *notify;
 
     ngx_log_t                *log;
+    ngx_pool_t               *pool;
 
     ngx_str_t                 name;
     ngx_uint_t                threads;
-    ngx_int_t                 max_queue;
+    ngx_uint_t                max_queue;
 
     u_char                   *file;
     ngx_uint_t                line;
@@ -46,7 +47,6 @@ struct ngx_thread_pool_s {
 static ngx_int_t ngx_thread_pool_init(ngx_thread_pool_t *tp, ngx_log_t *log,
     ngx_pool_t *pool);
 static void ngx_thread_pool_destroy(ngx_thread_pool_t *tp);
-static void ngx_thread_pool_exit_handler(void *data, ngx_log_t *log);
 
 static void *ngx_thread_pool_cycle(void *data);
 static void ngx_thread_pool_handler(ngx_event_t *ev);
@@ -98,9 +98,7 @@ ngx_module_t  ngx_thread_pool_module = {
 
 static ngx_str_t  ngx_thread_pool_default = ngx_string("default");
 
-static ngx_uint_t               ngx_thread_pool_task_id;
-static ngx_atomic_t             ngx_thread_pool_done_lock;
-static ngx_thread_pool_queue_t  ngx_thread_pool_done;
+static ngx_atomic_t  ngx_thread_counter = 1;
 
 
 static ngx_int_t
@@ -111,24 +109,30 @@ ngx_thread_pool_init(ngx_thread_pool_t *tp, ngx_log_t *log, ngx_pool_t *pool)
     ngx_uint_t      n;
     pthread_attr_t  attr;
 
-    if (ngx_notify == NULL) {
+    if (ngx_signal_notify == NULL) {
         ngx_log_error(NGX_LOG_ALERT, log, 0,
                "the configured event method cannot be used with thread pools");
         return NGX_ERROR;
     }
 
-    ngx_thread_pool_queue_init(&tp->queue);
-
-    if (ngx_thread_mutex_create(&tp->mtx, log) != NGX_OK) {
+    if (ngx_sem_init(&tp->sem, 0, log) != NGX_OK) {
         return NGX_ERROR;
     }
 
-    if (ngx_thread_cond_create(&tp->cond, log) != NGX_OK) {
-        (void) ngx_thread_mutex_destroy(&tp->mtx, log);
-        return NGX_ERROR;
-    }
+    tp->in.first = (ngx_atomic_uint_t) NULL;
+    tp->in.last_p = (ngx_atomic_uint_t) &tp->in.first;
+
+    tp->out.first = (ngx_atomic_uint_t) NULL;
+    tp->out.last_p = (ngx_atomic_uint_t) &tp->out.first;
 
     tp->log = log;
+    tp->pool = pool;
+
+    tp->notify = ngx_create_notify(ngx_thread_pool_handler, tp, log);
+
+    if (tp->notify == NULL) {
+        return NGX_ERROR;
+    }
 
     err = pthread_attr_init(&attr);
     if (err) {
@@ -164,52 +168,20 @@ ngx_thread_pool_init(ngx_thread_pool_t *tp, ngx_log_t *log, ngx_pool_t *pool)
 static void
 ngx_thread_pool_destroy(ngx_thread_pool_t *tp)
 {
-    ngx_uint_t           n;
-    ngx_thread_task_t    task;
-    volatile ngx_uint_t  lock;
+    /* TODO: exit threads */
 
-    ngx_memzero(&task, sizeof(ngx_thread_task_t));
+    (void) ngx_sem_destroy(&tp->sem, tp->log);
 
-    task.handler = ngx_thread_pool_exit_handler;
-    task.ctx = (void *) &lock;
-
-    for (n = 0; n < tp->threads; n++) {
-        lock = 1;
-
-        if (ngx_thread_task_post(tp, &task) != NGX_OK) {
-            return;
-        }
-
-        while (lock) {
-            ngx_sched_yield();
-        }
-
-        task.event.active = 0;
-    }
-
-    (void) ngx_thread_cond_destroy(&tp->cond, tp->log);
-
-    (void) ngx_thread_mutex_destroy(&tp->mtx, tp->log);
+    ngx_destroy_notify(tp->notify);
 }
 
 
-static void
-ngx_thread_pool_exit_handler(void *data, ngx_log_t *log)
+ngx_thread_pool_task_t *
+ngx_thread_pool_task_alloc(ngx_pool_t *pool, size_t size)
 {
-    ngx_uint_t *lock = data;
+    ngx_thread_pool_task_t  *task;
 
-    *lock = 0;
-
-    pthread_exit(0);
-}
-
-
-ngx_thread_task_t *
-ngx_thread_task_alloc(ngx_pool_t *pool, size_t size)
-{
-    ngx_thread_task_t  *task;
-
-    task = ngx_pcalloc(pool, sizeof(ngx_thread_task_t) + size);
+    task = ngx_pcalloc(pool, sizeof(ngx_thread_pool_task_t) + size);
     if (task == NULL) {
         return NULL;
     }
@@ -221,47 +193,58 @@ ngx_thread_task_alloc(ngx_pool_t *pool, size_t size)
 
 
 ngx_int_t
-ngx_thread_task_post(ngx_thread_pool_t *tp, ngx_thread_task_t *task)
+ngx_thread_pool_task_post(ngx_thread_pool_t *tp, ngx_thread_pool_task_t *task)
 {
+    ngx_int_t          count;
+    ngx_atomic_uint_t  lp;
+
     if (task->event.active) {
         ngx_log_error(NGX_LOG_ALERT, tp->log, 0,
                       "task #%ui already active", task->id);
         return NGX_ERROR;
     }
 
-    if (ngx_thread_mutex_lock(&tp->mtx, tp->log) != NGX_OK) {
+    if (ngx_sem_getvalue(&tp->sem, &count, tp->log) != NGX_OK) {
         return NGX_ERROR;
     }
 
-    if (tp->waiting >= tp->max_queue) {
-        (void) ngx_thread_mutex_unlock(&tp->mtx, tp->log);
-
+    if (count >= (ngx_int_t) tp->max_queue) {
         ngx_log_error(NGX_LOG_ERR, tp->log, 0,
                       "thread pool \"%V\" queue overflow: %i tasks waiting",
-                      &tp->name, tp->waiting);
+                      &tp->name, count);
         return NGX_ERROR;
     }
 
     task->event.active = 1;
 
-    task->id = ngx_thread_pool_task_id++;
+    task->id = tp->task_id++;
     task->next = NULL;
 
-    if (ngx_thread_cond_signal(&tp->cond, tp->log) != NGX_OK) {
-        (void) ngx_thread_mutex_unlock(&tp->mtx, tp->log);
-        return NGX_ERROR;
+    lp = tp->in.last_p;
+
+    if (lp == (ngx_atomic_uint_t) &tp->in.first
+        || !ngx_atomic_cmp_set(&tp->in.last_p, lp,
+                               (ngx_atomic_uint_t) &task->next))
+    {
+        /*
+         * either this is the first task or the last one
+         * has just been dequeued by a thread
+         */
+
+        tp->in.first = (ngx_atomic_uint_t) task;
+        tp->in.last_p = (ngx_atomic_uint_t) &task->next;
+
+    } else {
+        *(ngx_thread_pool_task_t **) lp = task;
     }
-
-    *tp->queue.last = task;
-    tp->queue.last = &task->next;
-
-    tp->waiting++;
-
-    (void) ngx_thread_mutex_unlock(&tp->mtx, tp->log);
 
     ngx_log_debug2(NGX_LOG_DEBUG_CORE, tp->log, 0,
                    "task #%ui added to thread pool \"%V\"",
                    task->id, &tp->name);
+
+    if (ngx_sem_post(&tp->sem, tp->log) != NGX_OK) {
+        return NGX_ERROR;
+    }
 
     return NGX_OK;
 }
@@ -272,108 +255,142 @@ ngx_thread_pool_cycle(void *data)
 {
     ngx_thread_pool_t *tp = data;
 
-    int                 err;
-    sigset_t            set;
-    ngx_thread_task_t  *task;
+    int                      err;
+    sigset_t                 set;
+    ngx_log_t                log;
+    ngx_connection_t         notify;
+    ngx_atomic_uint_t        lp;
+    ngx_thread_pool_task_t  *task;
 
-#if 0
-    ngx_time_update();
-#endif
+    log = *tp->log;
+    log.thread = ngx_atomic_fetch_add(&ngx_thread_counter, 1);
+    log.time = 1;
+    log.update_time = 1;
 
-    ngx_log_debug1(NGX_LOG_DEBUG_CORE, tp->log, 0,
-                   "thread in pool \"%V\" started", &tp->name);
+    ngx_log_debug2(NGX_LOG_DEBUG_CORE, &log, 0,
+                   "thread %uL of thread pool \"%V\" started",
+                   (uint64_t) ngx_thread_tid(), &tp->name);
 
     sigfillset(&set);
 
-    sigdelset(&set, SIGILL);
-    sigdelset(&set, SIGFPE);
-    sigdelset(&set, SIGSEGV);
-    sigdelset(&set, SIGBUS);
-
     err = pthread_sigmask(SIG_BLOCK, &set, NULL);
     if (err) {
-        ngx_log_error(NGX_LOG_ALERT, tp->log, err, "pthread_sigmask() failed");
+        ngx_log_error(NGX_LOG_ALERT, &log, err, "pthread_sigmask() failed");
         return NULL;
     }
 
+    notify = *tp->notify;
+    notify.log = &log;
+
     for ( ;; ) {
-        if (ngx_thread_mutex_lock(&tp->mtx, tp->log) != NGX_OK) {
+        if (ngx_sem_wait(&tp->sem, &log) != NGX_OK) {
             return NULL;
         }
 
-        /* the number may become negative */
-        tp->waiting--;
+        log.update_time = 1;
 
-        while (tp->queue.first == NULL) {
-            if (ngx_thread_cond_wait(&tp->cond, &tp->mtx, tp->log)
-                != NGX_OK)
+again:
+
+        do {
+            task = (ngx_thread_pool_task_t *) tp->in.first;
+
+            if (task == NULL) {
+                ngx_thread_yield();
+                goto again;
+            }
+
+        } while (!ngx_atomic_cmp_set(&tp->in.first, (ngx_atomic_uint_t) task,
+                                     (ngx_atomic_uint_t) task->next));
+
+        if (tp->in.first == (ngx_atomic_uint_t) NULL) {
+            /* special care to avoid race condition with appending */
+
+            if (tp->in.last_p != (ngx_atomic_uint_t) &task->next
+                || !ngx_atomic_cmp_set(&tp->in.last_p,
+                                       (ngx_atomic_uint_t) &task->next,
+                                       (ngx_atomic_uint_t) &tp->in.first))
             {
-                (void) ngx_thread_mutex_unlock(&tp->mtx, tp->log);
-                return NULL;
+                if (*(volatile void **) &task->next == NULL) {
+                    tp->in.first = (ngx_atomic_uint_t) task;
+                    ngx_thread_yield();
+                    goto again;
+                }
+
+                tp->in.first = (ngx_atomic_uint_t) task->next;
             }
         }
 
-        task = tp->queue.first;
-        tp->queue.first = task->next;
-
-        if (tp->queue.first == NULL) {
-            tp->queue.last = &tp->queue.first;
-        }
-
-        if (ngx_thread_mutex_unlock(&tp->mtx, tp->log) != NGX_OK) {
-            return NULL;
-        }
-
-#if 0
-        ngx_time_update();
-#endif
-
-        ngx_log_debug2(NGX_LOG_DEBUG_CORE, tp->log, 0,
+        ngx_log_debug2(NGX_LOG_DEBUG_CORE, &log, 0,
                        "run task #%ui in thread pool \"%V\"",
                        task->id, &tp->name);
 
-        task->handler(task->ctx, tp->log);
+        task->handler(task->ctx, &log);
 
-        ngx_log_debug2(NGX_LOG_DEBUG_CORE, tp->log, 0,
+        ngx_log_debug2(NGX_LOG_DEBUG_CORE, &log, 0,
                        "complete task #%ui in thread pool \"%V\"",
                        task->id, &tp->name);
 
         task->next = NULL;
 
-        ngx_spinlock(&ngx_thread_pool_done_lock, 1, 2048);
+        ngx_memory_barrier();
 
-        *ngx_thread_pool_done.last = task;
-        ngx_thread_pool_done.last = &task->next;
+        do {
+            lp = tp->out.last_p;
+        } while (!ngx_atomic_cmp_set(&tp->out.last_p, lp,
+                                     (ngx_atomic_uint_t) &task->next));
 
-        ngx_unlock(&ngx_thread_pool_done_lock);
+        *(ngx_thread_pool_task_t **) lp = task;
 
-        (void) ngx_notify(ngx_thread_pool_handler);
+        (void) ngx_signal_notify(&notify);
     }
+
+    return NULL;
 }
 
 
 static void
 ngx_thread_pool_handler(ngx_event_t *ev)
 {
-    ngx_event_t        *event;
-    ngx_thread_task_t  *task;
+    ngx_event_t             *event;
+    ngx_thread_pool_t       *tp;
+    ngx_thread_pool_task_t  *task;
 
-    ngx_log_debug0(NGX_LOG_DEBUG_CORE, ev->log, 0, "thread pool handler");
+    tp = ev->data;
 
-    ngx_spinlock(&ngx_thread_pool_done_lock, 1, 2048);
+    ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0,
+                   "thread pool \"%V\" handler", &tp->name);
 
-    task = ngx_thread_pool_done.first;
-    ngx_thread_pool_done.first = NULL;
-    ngx_thread_pool_done.last = &ngx_thread_pool_done.first;
+    if (ngx_handle_notify) {
+        (void) ngx_handle_notify(tp->notify);
+    }
 
-    ngx_unlock(&ngx_thread_pool_done_lock);
+    for ( ;; ) {
+        task = (ngx_thread_pool_task_t *) tp->out.first;
 
-    while (task) {
-        ngx_log_debug1(NGX_LOG_DEBUG_CORE, ev->log, 0,
-                       "run completion handler for task #%ui", task->id);
+        if (task == NULL) {
+            return;
+        }
+
+        tp->out.first = (ngx_atomic_uint_t) task->next;
+
+        if (tp->out.first == (ngx_atomic_uint_t) NULL) {
+            /* special care to avoid race condition with appending */
+
+            if (tp->out.last_p != (ngx_atomic_uint_t) &task->next
+                || !ngx_atomic_cmp_set(&tp->out.last_p,
+                                       (ngx_atomic_uint_t) &task->next,
+                                       (ngx_atomic_uint_t) &tp->out.first))
+            {
+                tp->out.first = (ngx_atomic_uint_t) task;
+                return;
+            }
+        }
+
+        ngx_log_debug2(NGX_LOG_DEBUG_CORE, tp->log, 0,
+                       "run completion handler for task #%ui "
+                       "in thread pool \"%V\"", task->id, &tp->name);
 
         event = &task->event;
-        task = task->next;
 
         event->complete = 1;
         event->active = 0;
@@ -483,7 +500,7 @@ ngx_thread_pool(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
             tp->max_queue = ngx_atoi(value[i].data + 10, value[i].len - 10);
 
-            if (tp->max_queue == NGX_ERROR) {
+            if (tp->max_queue == (ngx_uint_t) NGX_ERROR) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                    "invalid max_queue value \"%V\"", &value[i]);
                 return NGX_CONF_ERROR;
@@ -587,8 +604,6 @@ ngx_thread_pool_init_worker(ngx_cycle_t *cycle)
     if (tcf == NULL) {
         return NGX_OK;
     }
-
-    ngx_thread_pool_queue_init(&ngx_thread_pool_done);
 
     tpp = tcf->pools.elts;
 
