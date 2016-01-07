@@ -734,6 +734,42 @@ ngx_de_link_info(u_char *name, ngx_dir_t *dir)
 }
 
 
+ngx_err_t
+ngx_trylock_fd(ngx_fd_t fd)
+{
+    BOOL res;
+    OVERLAPPED ovlp;
+    ngx_memzero(&ovlp, sizeof(OVERLAPPED));
+    
+    res = LockFileEx(fd, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                     0, 0, 0, &ovlp);
+
+    return (res ? 0 : ngx_errno);
+}
+
+
+ngx_err_t
+ngx_lock_fd(ngx_fd_t fd)
+{
+    BOOL res;
+    OVERLAPPED ovlp;
+    ngx_memzero(&ovlp, sizeof(OVERLAPPED));
+    
+    res = LockFileEx(fd, LOCKFILE_EXCLUSIVE_LOCK,
+                     0, 0, 0, &ovlp);
+
+    return (res ? 0 : ngx_errno);
+}
+
+
+ngx_err_t
+ngx_unlock_fd(ngx_fd_t fd)
+{
+    BOOL res = UnlockFile(fd, 0, 0, 0, 0);
+
+    return (res ? 0 : ngx_errno);
+}
+
 ngx_int_t
 ngx_read_ahead(ngx_fd_t fd, size_t n)
 {
