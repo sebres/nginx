@@ -48,21 +48,21 @@ ngx_create_listening(ngx_conf_t *cf, struct sockaddr *sockaddr,
     switch (ls->sockaddr->sa_family) {
 #if (NGX_HAVE_INET6)
     case AF_INET6:
-        ls->addr_text_max_len = NGX_INET6_ADDRSTRLEN;
-        break;
+         ls->addr_text_max_len = NGX_INET6_ADDRSTRLEN;
+         break;
 #endif
 #if (NGX_HAVE_UNIX_DOMAIN)
     case AF_UNIX:
-        ls->addr_text_max_len = NGX_UNIX_ADDRSTRLEN;
-        len++;
-        break;
+         ls->addr_text_max_len = NGX_UNIX_ADDRSTRLEN;
+         len++;
+         break;
 #endif
     case AF_INET:
-        ls->addr_text_max_len = NGX_INET_ADDRSTRLEN;
-        break;
+         ls->addr_text_max_len = NGX_INET_ADDRSTRLEN;
+         break;
     default:
-        ls->addr_text_max_len = NGX_SOCKADDR_STRLEN;
-        break;
+         ls->addr_text_max_len = NGX_SOCKADDR_STRLEN;
+         break;
     }
 
     ls->addr_text.data = ngx_pnalloc(cf->pool, len);
@@ -169,22 +169,22 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 
 #if (NGX_HAVE_INET6)
         case AF_INET6:
-            ls[i].addr_text_max_len = NGX_INET6_ADDRSTRLEN;
-            len = NGX_INET6_ADDRSTRLEN + sizeof("[]:65535") - 1;
-            break;
+             ls[i].addr_text_max_len = NGX_INET6_ADDRSTRLEN;
+             len = NGX_INET6_ADDRSTRLEN + sizeof("[]:65535") - 1;
+             break;
 #endif
 
 #if (NGX_HAVE_UNIX_DOMAIN)
         case AF_UNIX:
-            ls[i].addr_text_max_len = NGX_UNIX_ADDRSTRLEN;
-            len = NGX_UNIX_ADDRSTRLEN;
-            break;
+             ls[i].addr_text_max_len = NGX_UNIX_ADDRSTRLEN;
+             len = NGX_UNIX_ADDRSTRLEN;
+             break;
 #endif
 
         case AF_INET:
-            ls[i].addr_text_max_len = NGX_INET_ADDRSTRLEN;
-            len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
-            break;
+             ls[i].addr_text_max_len = NGX_INET_ADDRSTRLEN;
+             len = NGX_INET_ADDRSTRLEN + sizeof(":65535") - 1;
+             break;
 
         default:
             ngx_log_error(NGX_LOG_CRIT, cycle->log, ngx_socket_errno,
@@ -465,7 +465,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                     ngx_log_debug4(NGX_LOG_DEBUG_CORE, log, 0, "[%d] shared socket %d %V: %d",
                         ngx_process, i, &ls[i].addr_text, s);
 
-                    goto do_listen;
+                    goto shared_sock;
                 }
             }
 #endif
@@ -623,17 +623,6 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                 continue;
             }
 
-#if (NGX_WIN32)
-            /* don't listen sockets in master */
-            if (ngx_process <= NGX_PROCESS_MASTER) {
-                ls[i].fd = s;
-
-                continue;
-            }
-
-do_listen:
-#endif
-
             if (listen(s, ls[i].backlog) == -1) {
                 err = ngx_socket_errno;
 
@@ -666,6 +655,9 @@ do_listen:
                 continue;
             }
 
+#if (NGX_WIN32)
+shared_sock:
+#endif
             ls[i].listen = 1;
 
             ls[i].fd = s;
@@ -956,7 +948,7 @@ ngx_configure_listening_sockets(ngx_cycle_t *cycle)
                               "setsockopt(IP_RECVDSTADDR) "
                               "for %V failed, ignored",
                               &ls[i].addr_text);
-            }
+    }
         }
 
 #elif (NGX_HAVE_IP_PKTINFO)
@@ -1188,18 +1180,18 @@ ngx_close_connection(ngx_connection_t *c)
     }
 
     if (!c->shared) {
-        if (ngx_del_conn) {
-            ngx_del_conn(c, NGX_CLOSE_EVENT);
+    if (ngx_del_conn) {
+        ngx_del_conn(c, NGX_CLOSE_EVENT);
 
-        } else {
-            if (c->read->active || c->read->disabled) {
-                ngx_del_event(c->read, NGX_READ_EVENT, NGX_CLOSE_EVENT);
-            }
-
-            if (c->write->active || c->write->disabled) {
-                ngx_del_event(c->write, NGX_WRITE_EVENT, NGX_CLOSE_EVENT);
-            }
+    } else {
+        if (c->read->active || c->read->disabled) {
+            ngx_del_event(c->read, NGX_READ_EVENT, NGX_CLOSE_EVENT);
         }
+
+        if (c->write->active || c->write->disabled) {
+            ngx_del_event(c->write, NGX_WRITE_EVENT, NGX_CLOSE_EVENT);
+        }
+    }
     }
 
     if (c->read->posted) {

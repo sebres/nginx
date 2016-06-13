@@ -401,10 +401,10 @@ ngx_start_worker_processes(ngx_cycle_t *cycle, ngx_int_t type)
     }
 
     /* 
-     * after we have started all workers, that share listener - close listeners
-     * in master (prevent to listen there without accept of incomming connections)
+     * after we have started all workers, that share listener,
+     * free shared memory used sharing
      */
-    ngx_close_listening_sockets(cycle);
+    ngx_free_listening_share(cycle);
 
     return n;
 }
@@ -544,6 +544,12 @@ ngx_reap_worker(ngx_cycle_t *cycle, HANDLE h)
     ngx_log_error(NGX_LOG_ALERT, cycle->log, 0, "unknown process handle %p", h);
 
 found:
+
+    /* 
+     * after we have started all workers, that share listener,
+     * free shared memory used sharing
+     */
+    ngx_free_listening_share(cycle);
 
     for (n = 0; n < ngx_last_process; n++) {
 
