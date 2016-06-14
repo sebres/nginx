@@ -876,8 +876,11 @@ ngx_http_file_cache_exists(ngx_http_file_cache_t *cache, ngx_http_cache_t *c)
                                      sizeof(ngx_http_file_cache_node_t));
         if (fcn == NULL) {
             ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
-                          "could not allocate node%s", cache->shpool->log_ctx);
-            rc = NGX_ERROR;
+                "could not allocate node%s, size %d (cache: size %O / %O, count %d / %d)", 
+                cache->shpool->log_ctx, sizeof(ngx_http_file_cache_node_t),
+                (off_t)cache->sh->size, (off_t)cache->max_size, cache->sh->count, cache->sh->watermark);
+            /* cannot be cached (NGX_HTTP_CACHE_SCARCE), just use it without cache */
+            rc = NGX_AGAIN;
             goto failed;
         }
     }
@@ -1865,24 +1868,27 @@ ngx_http_file_cache_delete(ngx_http_file_cache_t *cache, ngx_queue_t *q,
         p = ngx_hex_dump(p, fcn->key, len);
         *p = '\0';
 
-        fcn->count++;
-        fcn->deleting = 1;
-        ngx_shmtx_unlock(&cache->shpool->mutex);
+        if (!fcn->deleting) {
+            fcn->count++;
+            fcn->deleting = 1;
+            fcn->exists = 0;
+            ngx_shmtx_unlock(&cache->shpool->mutex);
 
-        len = path->name.len + 1 + path->len + 2 * NGX_HTTP_CACHE_KEY_LEN;
-        ngx_create_hashed_filename(path, name, len);
+        		len = path->name.len + 1 + path->len + 2 * NGX_HTTP_CACHE_KEY_LEN;
+            ngx_create_hashed_filename(path, name, len);
 
-        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
-                       "http file cache expire: \"%s\"", name);
+            ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
+                           "http file cache expire: \"%s\"", name);
 
-        if (ngx_delete_file(name) == NGX_FILE_ERROR) {
-            ngx_log_error(NGX_LOG_CRIT, ngx_cycle->log, ngx_errno,
-                          ngx_delete_file_n " \"%s\" failed", name);
+            if (ngx_delete_file(name) == NGX_FILE_ERROR) {
+                ngx_log_error(NGX_LOG_CRIT, ngx_cycle->log, ngx_errno,
+                              ngx_delete_file_n " \"%s\" failed", name);
+            }
+
+            ngx_shmtx_lock(&cache->shpool->mutex);
+            fcn->count--;
+            fcn->deleting = 0;
         }
-
-        ngx_shmtx_lock(&cache->shpool->mutex);
-        fcn->count--;
-        fcn->deleting = 0;
     }
 
     if (fcn->count == 0) {
@@ -2001,6 +2007,7 @@ ngx_http_file_cache_manage_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
 
     if (ngx_http_file_cache_add_file(ctx, path) != NGX_OK) {
         (void) ngx_http_file_cache_delete_file(ctx, path);
+        goto done;
     }
 
     if (++cache->files >= cache->loader_files) {
@@ -2018,6 +2025,8 @@ ngx_http_file_cache_manage_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
             ngx_http_file_cache_loader_sleep(cache);
         }
     }
+
+done:
 
     return (ngx_quit || ngx_terminate) ? NGX_ABORT : NGX_OK;
 }
@@ -2079,7 +2088,7 @@ ngx_http_file_cache_add_file(ngx_tree_ctx_t *ctx, ngx_str_t *name)
         n = ngx_hextoi(p, 2);
 
         if (n == NGX_ERROR) {
-            return NGX_ERROR;
+        return NGX_ERROR;
         }
 
         p += 2;
