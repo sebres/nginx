@@ -256,6 +256,11 @@ main(int argc, char *const *argv)
     if (ngx_os_init(log) != NGX_OK) {
         return 1;
     }
+    
+    /*
+     * ngx_slab_core_init() requires ngx_pagesize set in ngx_os_init()
+     */
+    ngx_slab_core_init();
 
     /*
      * ngx_crc32_table_init() requires ngx_cacheline_size set in ngx_os_init()
