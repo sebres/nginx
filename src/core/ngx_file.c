@@ -124,6 +124,15 @@ ngx_write_chain_to_temp_file(ngx_temp_file_t *tf, ngx_chain_t *chain)
         }
     }
 
+#if (NGX_THREADS && NGX_HAVE_PWRITEV)
+
+    if (tf->thread_write) {
+        return ngx_thread_write_chain_to_file(&tf->file, chain, tf->offset,
+                                              tf->pool);
+    }
+
+#endif
+
     return ngx_write_chain_to_file(&tf->file, chain, tf->offset, tf->pool);
 }
 
@@ -146,7 +155,7 @@ ngx_create_temp_file(ngx_file_t *file, ngx_path_t *path, ngx_pool_t *pool,
 
 #if 0
     for (i = 0; i < file->name.len; i++) {
-         file->name.data[i] = 'X';
+        file->name.data[i] = 'X';
     }
 #endif
 
@@ -689,10 +698,10 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
         int cntr = 5;
         do {
 
-            err = ngx_win32_rename_file(src, to, ext->log);
-            if (err == 0) {
-                return NGX_OK;
-            }
+        err = ngx_win32_rename_file(src, to, ext->log);
+        if (err == 0) {
+            return NGX_OK;
+        }
 
         } while (cntr-- && ngx_err_exists(err));
 
@@ -700,7 +709,7 @@ ngx_ext_rename_file(ngx_str_t *src, ngx_str_t *to, ngx_ext_rename_file_t *ext)
             /* log not as critical - expected errors by multiprocessing (ex.: cache) */
             log_level = NGX_LOG_INFO;
             goto failed;
-        }
+    }
     }
 
 #endif
@@ -844,7 +853,7 @@ ngx_copy_file(u_char *from, u_char *to, ngx_copy_file_t *cf)
 
         if ((size_t) n != len) {
             ngx_log_error(NGX_LOG_ALERT, cf->log, 0,
-                          ngx_read_fd_n " has read only %z of %uz from %s",
+                          ngx_read_fd_n " has read only %z of %O from %s",
                           n, size, from);
             goto failed;
         }
@@ -859,7 +868,7 @@ ngx_copy_file(u_char *from, u_char *to, ngx_copy_file_t *cf)
 
         if ((size_t) n != len) {
             ngx_log_error(NGX_LOG_ALERT, cf->log, 0,
-                          ngx_write_fd_n " has written only %z of %uz to %s",
+                          ngx_write_fd_n " has written only %z of %O to %s",
                           n, size, to);
             goto failed;
         }
