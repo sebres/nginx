@@ -514,6 +514,10 @@ ngx_reap_worker(ngx_cycle_t *cycle, HANDLE h)
                       "%s process %P exited with code %Xl",
                       ngx_processes[n].name, ngx_processes[n].pid, code);
 
+
+        /* process is dead, call master handler for dead pid */
+        ngx_process_worker_dead(ngx_processes[n].pid);
+
         ngx_close_handle(ngx_processes[n].reopen);
         ngx_close_handle(ngx_processes[n].quit);
         ngx_close_handle(ngx_processes[n].term);

@@ -1382,3 +1382,60 @@ ngx_shutdown_timer_handler(ngx_event_t *ev)
         c[i].read->handler(c[i].read);
     }
 }
+
+
+static void
+ngx_unlock_mutexes(ngx_pid_t pid)
+{
+    ngx_uint_t        i;
+    ngx_shm_zone_t   *shm_zone;
+    ngx_list_part_t  *part;
+    ngx_slab_pool_t  *sp;
+
+    /*
+     * unlock the accept mutex if the abnormally exited process
+     * held it
+     */
+
+    if (ngx_accept_mutex_ptr) {
+        if (ngx_shmtx_force_unlock(&ngx_accept_mutex, pid)) {
+            ngx_log_error(NGX_LOG_NOTICE, ngx_cycle->log, 0,
+                          "accept mutex was locked by %P", pid);
+        }
+    }
+
+    /*
+     * unlock shared memory mutexes if held by the abnormally exited
+     * process
+     */
+
+    part = (ngx_list_part_t *) &ngx_cycle->shared_memory.part;
+    shm_zone = part->elts;
+
+    for (i = 0; /* void */ ; i++) {
+
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+            part = part->next;
+            shm_zone = part->elts;
+            i = 0;
+        }
+
+        sp = (ngx_slab_pool_t *) shm_zone[i].shm.addr;
+
+        if (ngx_shmtx_force_unlock(&sp->mutex, pid)) {
+            ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, 0,
+                          "shared memory zone \"%V\" was locked by %P",
+                          &shm_zone[i].shm.name, pid);
+        }
+    }
+}
+
+
+void 
+ngx_process_worker_dead(ngx_pid_t pid)
+{
+    ngx_unlock_mutexes(pid);
+}
