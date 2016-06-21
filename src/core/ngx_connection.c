@@ -657,6 +657,16 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
 
 #if (NGX_WIN32)
 shared_sock:
+
+            if (ngx_process > NGX_PROCESS_MASTER) {
+                /* shared (inherited) socket should be also in non-blocking mode */
+                if (ngx_nonblocking(s) == -1) {
+                    ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
+                                  ngx_nonblocking_n " %V failed",
+                                  &ls[i].addr_text);
+                }
+            }
+
 #endif
             ls[i].listen = 1;
 
