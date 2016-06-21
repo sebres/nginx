@@ -309,7 +309,16 @@ ngx_create_full_path(u_char *dir, ngx_uint_t access)
     err = 0;
 
 #if (NGX_WIN32)
-    p = dir + 3;
+    /* differentiate between absolute and network path */
+    if (*dir != '/' && *dir != '\\') {
+        p = dir + 3;
+    } else {
+        /* network path, bypass share */
+        p = dir + 1;
+        if (*p) p += strspn((char*)p, "/\\");
+        if (*p) p += strcspn((char*)p, "/\\");
+        if (*p) p++;
+    }
 #else
     p = dir + 1;
 #endif
