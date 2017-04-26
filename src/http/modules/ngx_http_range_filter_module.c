@@ -224,12 +224,6 @@ parse:
 
     ctx->offset = r->headers_out.content_offset;
 
-    if (ngx_array_init(&ctx->ranges, r->pool, 1, sizeof(ngx_http_range_t))
-        != NGX_OK)
-    {
-        return NGX_ERROR;
-    }
-
     ranges = r->single_range ? 1 : clcf->max_ranges;
 
     switch (ngx_http_range_parse(r, ctx, ranges)) {
@@ -289,6 +283,12 @@ ngx_http_range_parse(ngx_http_request_t *r, ngx_http_range_filter_ctx_t *ctx,
             ctx->ranges = mctx->ranges;
             return NGX_OK;
         }
+    }
+
+    if (ngx_array_init(&ctx->ranges, r->pool, 1, sizeof(ngx_http_range_t))
+        != NGX_OK)
+    {
+        return NGX_ERROR;
     }
 
     p = r->headers_in.range->value.data + 6;
@@ -425,6 +425,8 @@ ngx_http_range_singlepart_header(ngx_http_request_t *r,
     content_range->value.data = ngx_pnalloc(r->pool,
                                     sizeof("bytes -/") - 1 + 3 * NGX_OFF_T_LEN);
     if (content_range->value.data == NULL) {
+        content_range->hash = 0;
+        r->headers_out.content_range = NULL;
         return NGX_ERROR;
     }
 
@@ -594,6 +596,8 @@ ngx_http_range_not_satisfiable(ngx_http_request_t *r)
     content_range->value.data = ngx_pnalloc(r->pool,
                                        sizeof("bytes */") - 1 + NGX_OFF_T_LEN);
     if (content_range->value.data == NULL) {
+        content_range->hash = 0;
+        r->headers_out.content_range = NULL;
         return NGX_ERROR;
     }
 
@@ -750,7 +754,8 @@ ngx_http_range_singlepart_body(ngx_http_request_t *r,
                 buf->last -= (size_t) (last - range->end);
             }
 
-            buf->last_buf = 1;
+            buf->last_buf = (r == r->main) ? 1 : 0;
+            buf->last_in_chain = 1;
             *ll = cl;
             cl->next = NULL;
 

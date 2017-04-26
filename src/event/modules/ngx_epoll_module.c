@@ -17,18 +17,19 @@
 #define EPOLLIN        0x001
 #define EPOLLPRI       0x002
 #define EPOLLOUT       0x004
+#define EPOLLERR       0x008
+#define EPOLLHUP       0x010
 #define EPOLLRDNORM    0x040
 #define EPOLLRDBAND    0x080
 #define EPOLLWRNORM    0x100
 #define EPOLLWRBAND    0x200
 #define EPOLLMSG       0x400
-#define EPOLLERR       0x008
-#define EPOLLHUP       0x010
 
 #define EPOLLRDHUP     0x2000
 
-#define EPOLLET        0x80000000
+#define EPOLLEXCLUSIVE 0x10000000
 #define EPOLLONESHOT   0x40000000
+#define EPOLLET        0x80000000
 
 #define EPOLL_CTL_ADD  1
 #define EPOLL_CTL_DEL  2
@@ -175,7 +176,7 @@ static ngx_command_t  ngx_epoll_commands[] = {
 };
 
 
-ngx_event_module_t  ngx_epoll_module_ctx = {
+static ngx_event_module_t  ngx_epoll_module_ctx = {
     &epoll_name,
     ngx_epoll_create_conf,               /* create configuration */
     ngx_epoll_init_conf,                 /* init configuration */
@@ -610,6 +611,12 @@ ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
         op = EPOLL_CTL_ADD;
     }
 
+#if (NGX_HAVE_EPOLLEXCLUSIVE && NGX_HAVE_EPOLLRDHUP)
+    if (flags & NGX_EXCLUSIVE_EVENT) {
+        events &= ~EPOLLRDHUP;
+    }
+#endif
+
     ee.events = events | (uint32_t) flags;
     ee.data.ptr = (void *) ((uintptr_t) c | ev->instance);
 
@@ -856,6 +863,13 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
             ngx_log_debug2(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                            "epoll_wait() error on fd:%d ev:%04XD",
                            c->fd, revents);
+
+            /*
+             * if the error events were returned, add EPOLLIN and EPOLLOUT
+             * to handle the events at least in one active handler
+             */
+
+            revents |= EPOLLIN|EPOLLOUT;
         }
 
 #if 0
@@ -865,18 +879,6 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
                           c->fd, revents);
         }
 #endif
-
-        if ((revents & (EPOLLERR|EPOLLHUP))
-             && (revents & (EPOLLIN|EPOLLOUT)) == 0)
-        {
-            /*
-             * if the error events were returned without EPOLLIN or EPOLLOUT,
-             * then add these flags to handle the events at least in one
-             * active handler
-             */
-
-            revents |= EPOLLIN|EPOLLOUT;
-        }
 
         if ((revents & EPOLLIN) && rev->active) {
 

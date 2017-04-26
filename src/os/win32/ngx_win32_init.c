@@ -25,6 +25,8 @@ ngx_os_io_t ngx_os_io = {
     ngx_wsarecv_chain,
     ngx_udp_wsarecv,
     ngx_wsasend,
+    NULL,
+    NULL,
     ngx_wsasend_chain,
     0
 };
@@ -65,12 +67,13 @@ extern LPCRITICAL_SECTION ngx_connect_lock;
 ngx_int_t
 ngx_os_init(ngx_log_t *log)
 {
-    DWORD        bytes;
-    SOCKET       s;
-    WSADATA      wsd;
-    ngx_err_t    err;
-    ngx_uint_t   n;
-    SYSTEM_INFO  si;
+    DWORD         bytes;
+    SOCKET        s;
+    WSADATA       wsd;
+    ngx_err_t     err;
+    ngx_time_t   *tp;
+    ngx_uint_t    n;
+    SYSTEM_INFO   si;
 
     /* get Windows version */
 
@@ -249,7 +252,8 @@ ngx_os_init(ngx_log_t *log)
         ngx_sprintf((u_char *) ngx_unique, "%P%Z", ngx_pid);
     }
 
-    srand((ngx_pid << 16) ^ (unsigned) ngx_time());
+    tp = ngx_timeofday();
+    srand((ngx_pid << 16) ^ (unsigned) tp->sec ^ tp->msec);
 
     return NGX_OK;
 }

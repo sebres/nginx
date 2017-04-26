@@ -795,7 +795,11 @@ static ngx_thread_value_t __stdcall
 ngx_worker_thread(void *data)
 {
     ngx_int_t     n;
+    ngx_time_t   *tp;
     ngx_cycle_t  *cycle;
+
+    tp = ngx_timeofday();
+    srand((ngx_pid << 16) ^ (unsigned) tp->sec ^ tp->msec);
 
     cycle = (ngx_cycle_t *) ngx_cycle;
 
@@ -811,11 +815,7 @@ ngx_worker_thread(void *data)
     while (!ngx_quit) {
 
         if (ngx_exiting) {
-            ngx_event_cancel_timers();
-
-            if (ngx_event_timer_rbtree.root
-                == ngx_event_timer_rbtree.sentinel)
-            {
+            if (ngx_event_no_timers_left() == NGX_OK) {
                 break;
             }
         }
@@ -833,6 +833,7 @@ ngx_worker_thread(void *data)
 
             if (!ngx_exiting) {
                 ngx_exiting = 1;
+                ngx_set_shutdown_timer(cycle);
                 ngx_close_listening_sockets(cycle);
                 ngx_close_idle_connections(cycle);
             }
@@ -950,11 +951,11 @@ static void
 ngx_cache_manager_process_handler(void)
 {
     u_long        ev;
-    time_t        next, n;
     ngx_uint_t    i;
+    ngx_msec_t    next, n;
     ngx_path_t  **path;
 
-    next = 60 * 60;
+    next = 60 * 60 * 1000;
 
     path = ngx_cycle->paths.elts;
     for (i = 0; i < ngx_cycle->paths.nelts; i++) {
@@ -972,7 +973,7 @@ ngx_cache_manager_process_handler(void)
         next = 1;
     }
 
-    ev = WaitForSingleObject(ngx_cache_manager_event, (u_long) next * 1000);
+    ev = WaitForSingleObject(ngx_cache_manager_event, (u_long) next);
 
     if (ev != WAIT_TIMEOUT) {
 

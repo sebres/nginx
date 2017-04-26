@@ -1563,7 +1563,7 @@ ngx_escape_uri(u_char *dst, u_char *src, size_t size, ngx_uint_t type)
         n = 0;
 
         while (size) {
-            if (escape[*src >> 5] & (1 << (*src & 0x1f))) {
+            if (escape[*src >> 5] & (1U << (*src & 0x1f))) {
                 n++;
             }
             src++;
@@ -1574,7 +1574,7 @@ ngx_escape_uri(u_char *dst, u_char *src, size_t size, ngx_uint_t type)
     }
 
     while (size) {
-        if (escape[*src >> 5] & (1 << (*src & 0x1f))) {
+        if (escape[*src >> 5] & (1U << (*src & 0x1f))) {
             *dst++ = '%';
             *dst++ = hex[*src >> 4];
             *dst++ = hex[*src & 0xf];
@@ -1808,7 +1808,19 @@ ngx_escape_json(u_char *dst, u_char *src, size_t size)
                 len++;
 
             } else if (ch <= 0x1f) {
-                len += sizeof("\\u001F") - 2;
+
+                switch (ch) {
+                case '\n':
+                case '\r':
+                case '\t':
+                case '\b':
+                case '\f':
+                    len++;
+                    break;
+
+                default:
+                    len += sizeof("\\u001F") - 2;
+                }
             }
 
             size--;
@@ -1829,12 +1841,37 @@ ngx_escape_json(u_char *dst, u_char *src, size_t size)
             *dst++ = ch;
 
         } else {
-            *dst++ = '\\'; *dst++ = 'u'; *dst++ = '0'; *dst++ = '0';
-            *dst++ = '0' + (ch >> 4);
+            *dst++ = '\\';
 
-            ch &= 0xf;
+            switch (ch) {
+            case '\n':
+                *dst++ = 'n';
+                break;
 
-            *dst++ = (ch < 10) ? ('0' + ch) : ('A' + ch - 10);
+            case '\r':
+                *dst++ = 'r';
+                break;
+
+            case '\t':
+                *dst++ = 't';
+                break;
+
+            case '\b':
+                *dst++ = 'b';
+                break;
+
+            case '\f':
+                *dst++ = 'f';
+                break;
+
+            default:
+                *dst++ = 'u'; *dst++ = '0'; *dst++ = '0';
+                *dst++ = '0' + (ch >> 4);
+
+                ch &= 0xf;
+
+                *dst++ = (ch < 10) ? ('0' + ch) : ('A' + ch - 10);
+            }
         }
 
         size--;

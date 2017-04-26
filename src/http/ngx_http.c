@@ -457,7 +457,10 @@ ngx_http_init_phase_handlers(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf)
     use_rewrite = cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers.nelts ? 1 : 0;
     use_access = cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers.nelts ? 1 : 0;
 
-    n = use_rewrite + use_access + cmcf->try_files + 1 /* find config phase */;
+    n = 1                  /* find config phase */
+        + use_rewrite      /* post rewrite phase */
+        + use_access       /* post access phase */
+        + cmcf->try_files;
 
     for (i = 0; i < NGX_HTTP_LOG_PHASE; i++) {
         n += cmcf->phases[i].handlers.nelts;
@@ -1144,12 +1147,8 @@ ngx_http_add_listen(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
     in_port_t                   p;
     ngx_uint_t                  i;
     struct sockaddr            *sa;
-    struct sockaddr_in         *sin;
     ngx_http_conf_port_t       *port;
     ngx_http_core_main_conf_t  *cmcf;
-#if (NGX_HAVE_INET6)
-    struct sockaddr_in6        *sin6;
-#endif
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
@@ -1162,27 +1161,7 @@ ngx_http_add_listen(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
     }
 
     sa = &lsopt->sockaddr.sockaddr;
-
-    switch (sa->sa_family) {
-
-#if (NGX_HAVE_INET6)
-    case AF_INET6:
-        sin6 = &lsopt->sockaddr.sockaddr_in6;
-        p = sin6->sin6_port;
-        break;
-#endif
-
-#if (NGX_HAVE_UNIX_DOMAIN)
-    case AF_UNIX:
-        p = 0;
-        break;
-#endif
-
-    default: /* AF_INET */
-        sin = &lsopt->sockaddr.sockaddr_in;
-        p = sin->sin_port;
-        break;
-    }
+    p = ngx_inet_get_port(sa);
 
     port = cmcf->ports->elts;
     for (i = 0; i < cmcf->ports->nelts; i++) {
@@ -1780,7 +1759,7 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
     ls->deferred_accept = addr->opt.deferred_accept;
 #endif
 
-#if (NGX_HAVE_INET6 && defined IPV6_V6ONLY)
+#if (NGX_HAVE_INET6)
     ls->ipv6only = addr->opt.ipv6only;
 #endif
 
