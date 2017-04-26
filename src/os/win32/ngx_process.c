@@ -182,6 +182,10 @@ ngx_spawn_process(ngx_cycle_t *cycle, char *name, ngx_int_t respawn)
 
 failed:
 
+    /* process is dead, call master handler for dead pid */
+    ngx_process_worker_dead(pid);
+
+
     if (ngx_processes[s].reopen) {
         ngx_close_handle(ngx_processes[s].reopen);
     }
