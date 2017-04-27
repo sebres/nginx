@@ -79,6 +79,23 @@ ngx_event_accept(ngx_event_t *ev)
                 return;
             }
 
+#if (NGX_WIN32)
+            /* blocking call in progress, or still processing a callback in SP */
+            if (err == NGX_EINPROGRESS) {
+                ngx_log_debug0(NGX_LOG_DEBUG_EVENT, ev->log, err,
+                   "accept() in progress, retry");
+                /* simply give another workers time to process */
+                ngx_msleep(1);
+                continue;
+            }
+            /* incoming connection reset by peer, prior to accepting the call */
+            if (err == NGX_ECONNRESET) {
+                ngx_log_debug0(NGX_LOG_DEBUG_EVENT, ev->log, err,
+                   "accept() connection reset by peer");
+                return;
+            }
+#endif
+
             level = NGX_LOG_ALERT;
 
             if (err == NGX_ECONNABORTED) {
