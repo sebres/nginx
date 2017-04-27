@@ -11,12 +11,10 @@
 
 #define NGX_UTF16_BUFLEN  256
 
-typedef struct _ngx_delete_file_queue_files_t ngx_delete_file_queue_files_t;
-
 typedef struct _ngx_delete_file_queue_files_t {
-    ngx_delete_file_queue_files_t *prev;
-    ngx_delete_file_queue_files_t *next;
-};
+    struct _ngx_delete_file_queue_files_t *prev;
+    struct _ngx_delete_file_queue_files_t *next;
+} ngx_delete_file_queue_files_t;
 
 static struct {
     ngx_delete_file_queue_files_t *first;
