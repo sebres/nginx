@@ -165,6 +165,10 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
             continue;
         }
 
+        if (ls[i].socklen > (socklen_t) sizeof(ngx_sockaddr_t)) {
+            ls[i].socklen = sizeof(ngx_sockaddr_t);
+        }
+
         switch (ls[i].sockaddr->sa_family) {
 
 #if (NGX_HAVE_INET6)
@@ -508,7 +512,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
 
 #if (NGX_HAVE_REUSEPORT)
 
-            if (ls[i].reuseport) {
+            if (ls[i].reuseport && !ngx_test_config) {
                 int  reuseport;
 
                 reuseport = 1;
@@ -518,7 +522,7 @@ ngx_open_listening_sockets(ngx_cycle_t *cycle)
                     == -1)
                 {
                     ngx_log_error(NGX_LOG_EMERG, log, ngx_socket_errno,
-                                  "setsockopt(SO_REUSEPORT) %V failed, ignored",
+                                  "setsockopt(SO_REUSEPORT) %V failed",
                                   &ls[i].addr_text);
 
                     if (ngx_close_socket(s) == -1) {
@@ -1401,6 +1405,49 @@ ngx_connection_local_sockaddr(ngx_connection_t *c, ngx_str_t *s,
 
     s->len = ngx_sock_ntop(c->local_sockaddr, c->local_socklen,
                            s->data, s->len, port);
+
+    return NGX_OK;
+}
+
+
+ngx_int_t
+ngx_tcp_nodelay(ngx_connection_t *c)
+{
+    int  tcp_nodelay;
+
+    if (c->tcp_nodelay != NGX_TCP_NODELAY_UNSET) {
+        return NGX_OK;
+    }
+
+    ngx_log_debug0(NGX_LOG_DEBUG_CORE, c->log, 0, "tcp_nodelay");
+
+    tcp_nodelay = 1;
+
+    if (setsockopt(c->fd, IPPROTO_TCP, TCP_NODELAY,
+                   (const void *) &tcp_nodelay, sizeof(int))
+        == -1)
+    {
+#if (NGX_SOLARIS)
+        if (c->log_error == NGX_ERROR_INFO) {
+
+            /* Solaris returns EINVAL if a socket has been shut down */
+            c->log_error = NGX_ERROR_IGNORE_EINVAL;
+
+            ngx_connection_error(c, ngx_socket_errno,
+                                 "setsockopt(TCP_NODELAY) failed");
+
+            c->log_error = NGX_ERROR_INFO;
+
+            return NGX_ERROR;
+        }
+#endif
+
+        ngx_connection_error(c, ngx_socket_errno,
+                             "setsockopt(TCP_NODELAY) failed");
+        return NGX_ERROR;
+    }
+
+    c->tcp_nodelay = NGX_TCP_NODELAY_SET;
 
     return NGX_OK;
 }

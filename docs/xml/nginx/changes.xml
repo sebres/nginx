@@ -5,6 +5,518 @@
 <change_log title="nginx">
 
 
+<changes ver="1.13.7" date="2017-11-21">
+
+<change type="bugfix">
+<para lang="ru">
+в переменной $upstream_status.
+</para>
+<para lang="en">
+in the $upstream_status variable.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в рабочем процессе мог произойти segmentation fault,
+если бэкенд возвращал ответ "101 Switching Protocols" на подзапрос.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+if a backend returned a "101 Switching Protocols" response to a subrequest.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+если при переконфигурации изменялся размер зоны разделяемой памяти
+и переконфигурация завершалась неудачно,
+то в главном процессе происходил segmentation fault.
+</para>
+<para lang="en">
+a segmentation fault occurred in a master process
+if a shared memory zone size was changed during a reconfiguration
+and the reconfiguration failed.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле ngx_http_fastcgi_module.
+</para>
+<para lang="en">
+in the ngx_http_fastcgi_module.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+nginx возвращал ошибку 500,
+если в директиве xslt_stylesheet
+были заданы параметры без использования переменных.
+</para>
+<para lang="en">
+nginx returned the 500 error
+if parameters without variables were specified
+in the "xslt_stylesheet" directive.
+</para>
+</change>
+
+<change type="workaround">
+<para lang="ru">
+при использовании варианта библиотеки zlib от Intel
+в лог писались сообщения "gzip filter failed to use preallocated memory".
+</para>
+<para lang="en">
+"gzip filter failed to use preallocated memory" alerts appeared in logs
+when using a zlib library variant from Intel.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+директива worker_shutdown_timeout не работала
+при использовании почтового прокси-сервера
+и при проксировании WebSocket-соединений.
+</para>
+<para lang="en">
+the "worker_shutdown_timeout" directive did not work
+when using mail proxy and when proxying WebSocket connections.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.13.6" date="2017-10-10">
+
+<change type="bugfix">
+<para lang="ru">
+при использовании директивы ssl_preread
+в модуле stream не работало переключение на следующий бэкенд.
+</para>
+<para lang="en">
+switching to the next upstream server in the stream module did not work
+when using the "ssl_preread" directive.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле ngx_http_v2_module.<br/>
+Спасибо Piotr Sikora.
+</para>
+<para lang="en">
+in the ngx_http_v2_module.<br/>
+Thanks to Piotr Sikora.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+nginx не поддерживал даты после 2038 года
+на 32-битных платформах с 64-битным time_t.
+</para>
+<para lang="en">
+nginx did not support dates after the year 2038
+on 32-bit platforms with 64-bit time_t.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке дат до 1970 года и после 10000 года.
+</para>
+<para lang="en">
+in handling of dates prior to the year 1970 and after the year 10000.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле stream таймауты ожидания UDP-пакетов от бэкендов
+не логгировались или логгировались на уровне info вместо error.
+</para>
+<para lang="en">
+in the stream module timeouts waiting for UDP datagrams from upstream servers
+were not logged or logged at the "info" level instead of "error".
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании HTTP/2 nginx мог вернуть ошибку 400,
+не указав в логе причину.
+</para>
+<para lang="en">
+when using HTTP/2 nginx might return the 400 response
+without logging the reason.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке повреждённых файлов кэша.
+</para>
+<para lang="en">
+in processing of corrupted cache files.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при кэшировании ошибок, перехваченных error_page,
+не учитывались заголовки управления кэшированием.
+</para>
+<para lang="en">
+cache control headers were ignored
+when caching errors intercepted by error_page.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании HTTP/2 тело запроса могло быть повреждено.
+</para>
+<para lang="en">
+when using HTTP/2 client request body might be corrupted.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в обработке адресов клиентов при использовании unix domain сокетов.
+</para>
+<para lang="en">
+in handling of client addresses when using unix domain sockets.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании директивы "hash ... consistent" в блоке upstream
+nginx нагружал процессор, если использовались большие веса
+и все или почти все бэкенды были недоступны.
+</para>
+<para lang="en">
+nginx hogged CPU
+when using the "hash ... consistent" directive in the upstream block
+if large weights were used and all or most of the servers were unavailable.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.13.5" date="2017-09-05">
+
+<change type="feature">
+<para lang="ru">
+переменная $ssl_client_escaped_cert.
+</para>
+<para lang="en">
+the $ssl_client_escaped_cert variable.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+директива ssl_session_ticket_key и параметр include директивы geo
+не работали на Windows.
+</para>
+<para lang="en">
+the "ssl_session_ticket_key" directive and
+the "include" parameter of the "geo" directive did not work on Windows.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+на 32-битных платформах
+при запросе более 4 гигабайт с помощью нескольких диапазонов
+возвращалась некорректная длина ответа.
+</para>
+<para lang="en">
+incorrect response length was returned
+on 32-bit platforms when requesting more than 4 gigabytes
+with multiple ranges.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+директива "expires modified" и
+обработка строки If-Range заголовка запроса
+не учитывали время последнего изменения ответа,
+если использовалось проксирование без кэширования.
+</para>
+<para lang="en">
+the "expires modified" directive and
+processing of the "If-Range" request header line
+did not use the response last modification time
+if proxying without caching was used.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.13.4" date="2017-08-08">
+
+<change type="feature">
+<para lang="ru">
+модуль ngx_http_mirror_module.
+</para>
+<para lang="en">
+the ngx_http_mirror_module.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+клиентские соединения могли сбрасываться при тестировании конфигурации,
+если использовался параметр reuseport директивы listen на Linux.
+</para>
+<para lang="en">
+client connections might be dropped during configuration testing
+when using the "reuseport" parameter of the "listen" directive on Linux.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+тело запроса могло быть недоступно в подзапросах,
+если оно было сохранено в файл и использовалось проксирование.
+</para>
+<para lang="en">
+request body might not be available in subrequests
+if it was saved to a file and proxying was used.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+очистка кэша по max_size не работала на Windows.
+</para>
+<para lang="en">
+cleaning cache based on the "max_size" parameter did not work on Windows.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+любое выделение разделяемой памяти на Windows требовало 4096 байт памяти.
+</para>
+<para lang="en">
+any shared memory allocation required 4096 bytes on Windows.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании директивы zone в блоке upstream на Windows
+рабочий процесс мог завершаться аварийно.
+</para>
+<para lang="en">
+nginx worker might be terminated abnormally
+when using the "zone" directive inside the "upstream" block on Windows.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.13.3" date="2017-07-11">
+
+<change type="security">
+<para lang="ru">
+специально созданный запрос мог вызвать целочисленное переполнение
+в range-фильтре и последующую некорректную обработку запрошенных диапазонов,
+что потенциально могло привести к утечке конфиденциальной информации
+(CVE-2017-7529).
+</para>
+<para lang="en">
+a specially crafted request might result in an integer overflow
+and incorrect processing of ranges in the range filter,
+potentially resulting in sensitive information leak
+(CVE-2017-7529).
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.13.2" date="2017-06-27">
+
+<change type="change">
+<para lang="ru">
+теперь при запросе диапазона, начинающегося с 0, из пустого файла
+nginx возвращает ответ 200 вместо 416.
+</para>
+<para lang="en">
+nginx now returns 200 instead of 416
+when a range starting with 0 is requested from an empty file.
+</para>
+</change>
+
+<change type="feature">
+<para lang="ru">
+директива add_trailer.<br/>
+Спасибо Piotr Sikora.
+</para>
+<para lang="en">
+the "add_trailer" directive.<br/>
+Thanks to Piotr Sikora.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+nginx не собирался под Cygwin и NetBSD;
+ошибка появилась в 1.13.0.
+</para>
+<para lang="en">
+nginx could not be built on Cygwin and NetBSD;
+the bug had appeared in 1.13.0.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+nginx не собирался под MSYS2 / MinGW 64-bit.<br/>
+Спасибо Orgad Shaneh.
+</para>
+<para lang="en">
+nginx could not be built under MSYS2 / MinGW 64-bit.<br/>
+Thanks to Orgad Shaneh.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+при использовании SSI с большим количеством подзапросов
+и proxy_pass с переменными
+в рабочем процессе мог произойти segmentation fault.
+</para>
+<para lang="en">
+a segmentation fault might occur in a worker process
+when using SSI with many includes
+and proxy_pass with variables.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в модуле ngx_http_v2_module.<br/>
+Спасибо Piotr Sikora.
+</para>
+<para lang="en">
+in the ngx_http_v2_module.<br/>
+Thanks to Piotr Sikora.
+</para>
+</change>
+
+</changes>
+
+
+<changes ver="1.13.1" date="2017-05-30">
+
+<change type="feature">
+<para lang="ru">
+теперь в качестве параметра директивы set_real_ip_from
+можно указывать имя хоста.
+</para>
+<para lang="en">
+now a hostname can be used
+as the "set_real_ip_from" directive parameter.
+</para>
+</change>
+
+<change type="feature">
+<para lang="ru">
+улучшения в скриптах подсветки синтаксиса для vim.
+</para>
+<para lang="en">
+vim syntax highlighting scripts improvements.
+</para>
+</change>
+
+<change type="feature">
+<para lang="ru">
+директива worker_cpu_affinity теперь работает на DragonFly BSD.<br/>
+Спасибо Sepherosa Ziehau.
+</para>
+<para lang="en">
+the "worker_cpu_affinity" directive now works on DragonFly BSD.<br/>
+Thanks to Sepherosa Ziehau.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+SSL renegotiation в соединениях к бэкендам
+не работал при использовании OpenSSL до 1.1.0.
+</para>
+<para lang="en">
+SSL renegotiation on backend connections
+did not work when using OpenSSL before 1.1.0.
+</para>
+</change>
+
+<change type="workaround">
+<para lang="ru">
+nginx не собирался с Oracle Developer Studio 12.5.
+</para>
+<para lang="en">
+nginx could not be built with Oracle Developer Studio 12.5.
+</para>
+</change>
+
+<change type="workaround">
+<para lang="ru">
+теперь cache manager пропускает заблокированные записи
+при очистке кэша по max_size.
+</para>
+<para lang="en">
+now cache manager ignores long locked cache entries
+when cleaning cache based on the "max_size" parameter.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+клиентские SSL-соединения сразу закрывались, если использовался
+отложенный accept и параметр proxy_protocol директивы listen.
+</para>
+<para lang="en">
+client SSL connections were immediately closed if deferred accept
+and the "proxy_protocol" parameter of the "listen" directive were used.
+</para>
+</change>
+
+<change type="bugfix">
+<para lang="ru">
+в директиве proxy_cache_background_update.
+</para>
+<para lang="en">
+in the "proxy_cache_background_update" directive.
+</para>
+</change>
+
+<change type="workaround">
+<para lang="ru">
+теперь директива tcp_nodelay
+устанавливает опцию TCP_NODELAY перед SSL handshake.
+</para>
+<para lang="en">
+now the "tcp_nodelay" directive
+sets the TCP_NODELAY option before an SSL handshake.
+</para>
+</change>
+
+</changes>
+
+
 <changes ver="1.13.0" date="2017-04-25">
 
 <change type="change">

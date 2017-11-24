@@ -111,7 +111,7 @@ static ngx_stream_variable_t  ngx_stream_core_variables[] = {
     { ngx_string("protocol"), NULL,
       ngx_stream_variable_protocol, 0, 0, 0 },
 
-    { ngx_null_string, NULL, NULL, 0, 0, 0 }
+      ngx_stream_null_variable
 };
 
 
@@ -460,7 +460,7 @@ ngx_stream_get_variable(ngx_stream_session_t *s, ngx_str_t *name,
 static ngx_int_t
 ngx_stream_variable_binary_remote_addr(ngx_stream_session_t *s,
      ngx_stream_variable_value_t *v, uintptr_t data)
- {
+{
     struct sockaddr_in   *sin;
 #if (NGX_HAVE_INET6)
     struct sockaddr_in6  *sin6;
@@ -477,6 +477,18 @@ ngx_stream_variable_binary_remote_addr(ngx_stream_session_t *s,
         v->no_cacheable = 0;
         v->not_found = 0;
         v->data = sin6->sin6_addr.s6_addr;
+
+        break;
+#endif
+
+#if (NGX_HAVE_UNIX_DOMAIN)
+    case AF_UNIX:
+
+        v->len = s->connection->addr_text.len;
+        v->valid = 1;
+        v->no_cacheable = 0;
+        v->not_found = 0;
+        v->data = s->connection->addr_text.data;
 
         break;
 #endif

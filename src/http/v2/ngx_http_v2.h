@@ -144,6 +144,7 @@ struct ngx_http_v2_connection_s {
 
     unsigned                         closed_nodes:8;
     unsigned                         settings_ack:1;
+    unsigned                         table_update:1;
     unsigned                         blocked:1;
     unsigned                         goaway:1;
 };
@@ -258,6 +259,15 @@ ngx_http_v2_queue_blocked_frame(ngx_http_v2_connection_t *h2c,
 
     frame->next = *out;
     *out = frame;
+}
+
+
+static ngx_inline void
+ngx_http_v2_queue_ordered_frame(ngx_http_v2_connection_t *h2c,
+    ngx_http_v2_out_frame_t *frame)
+{
+    frame->next = h2c->last_out;
+    h2c->last_out = frame;
 }
 
 
